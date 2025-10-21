@@ -5,7 +5,7 @@ import io
 from contextlib import redirect_stdout
 from sqlalchemy import create_engine
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pantic import BaseModel
 from contextlib import asynccontextmanager
 import functools
 
@@ -148,9 +148,17 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-@app.post("/query", response_model=QueryResponse)
+# --- INICIO DE LOS CAMBIOS ---
+
+# 1. AÑADIMOS UN ENDPOINT DE VERIFICACIÓN
+@app.get("/")
+def read_root():
+    return {"status": "Backend v3.1 - ¡Endpoint /ask está activo!"}
+
+# 2. CAMBIAMOS EL NOMBRE DEL ENDPOINT DE /query A /ask
+@app.post("/ask", response_model=QueryResponse)
 async def handle_query(request: QueryRequest):
-    print(f"\n--- [NUEVA PETICIÓN]: {request.question} ---")
+    print(f"\n--- [NUEVA PETICIÓN en /ask]: {request.question} ---")
     query_master = app_state.get('query_master')
     if not query_master:
         raise HTTPException(status_code=503, detail="El servicio no está listo.")
@@ -161,3 +169,5 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
+# --- FIN DE LOS CAMBIOS ---
