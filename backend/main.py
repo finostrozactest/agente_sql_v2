@@ -154,7 +154,7 @@ async def lifespan(app: FastAPI):
          raise RuntimeError("No se pudo crear la base de datos, el backend no puede iniciar.")
 
     # 4. Configurar Agentes de IA
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     
@@ -215,3 +215,4 @@ async def handle_query(request: QueryRequest):
     except Exception as e:
         print(f"Error inesperado al procesar la consulta: {e}")
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno: {e}")
+
