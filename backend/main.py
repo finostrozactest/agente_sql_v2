@@ -1,5 +1,3 @@
-# backend/main.py
-
 import os
 import pandas as pd
 import re
@@ -102,7 +100,11 @@ class QueryMaster:
 async def lifespan(app: FastAPI):
     print("Iniciando el servidor FastAPI...")
     google_api_key = os.getenv("GOOGLE_API_KEY")
-    if not google_api_key: raise ValueError("La variable de entorno GOOGLE_API_KEY no está configurada.")
+    if not google_api_key:
+        # ESTA VERIFICACIÓN ES CORRECTA Y DEBE QUEDARSE.
+        # Provoca que la aplicación falle si la API Key no es proporcionada
+        # durante el despliegue, lo cual es una práctica de seguridad importante.
+        raise ValueError("La variable de entorno GOOGLE_API_KEY no está configurada.")
     os.environ["GOOGLE_API_KEY"] = google_api_key
 
     ecommerce_data = load_and_prepare_data()
