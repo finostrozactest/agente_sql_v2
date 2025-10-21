@@ -160,4 +160,3 @@ if prompt := st.chat_input("Ej: ¿Cuáles son los 5 productos más vendidos y su
                 error_message = f"Ocurrió un error inesperado: {e}"
                 st.error(error_message)
                 assistant_message["text"] = error_message
-
