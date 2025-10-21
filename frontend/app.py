@@ -7,18 +7,20 @@ import re
 
 # --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
-    page_title="Asistente de Datos v3.0",
+    page_title="Asistente de Datos v3.1",
     page_icon="✅",
     layout="wide"
 )
 
 # --- 2. TÍTULOS Y MARCADOR DE VERSIÓN ---
 st.title("✅ Asistente de Análisis de Datos con Validación")
-st.header("Versión 3.0 - Funcionalidades de UX Mejoradas") # <-- NUEVO MARCADOR VISUAL
+st.header("Versión 3.1 - Endpoint Corregido") # <-- MARCADOR VISUAL
 st.caption("Impulsado por Google Gemini y LangChain.")
 
 # --- 3. LÓGICA DE LA APLICACIÓN ---
-BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000/query")
+# La variable de entorno que pasaremos en el despliegue es la clave.
+# El valor por defecto ahora apunta a /ask.
+BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000/ask")
 
 @st.cache_data
 def to_excel(df: pd.DataFrame) -> bytes:
@@ -30,8 +32,8 @@ def to_excel(df: pd.DataFrame) -> bytes:
 
 def parse_markdown_table_to_df(markdown_text: str):
     """
-    Función para encontrar una tabla Markdown en el texto y convertirla a un DataFrame de Pandas.
-    Esta es la clave para poder descargar el resultado.
+    Encuentra una tabla Markdown en el texto y la convierte a un DataFrame de Pandas.
+    Esto es necesario para poder habilitar la descarga a Excel.
     """
     table_regex = re.compile(r"(\|.*\|(?:\n\|.*\|)+)")
     table_match = table_regex.search(markdown_text)
@@ -48,7 +50,6 @@ def parse_markdown_table_to_df(markdown_text: str):
         csv_like = "\n".join([line.strip().strip('|').replace('|', ',') for line in lines])
         df = pd.read_csv(io.StringIO(csv_like))
         
-        # Limpiar espacios en blanco de las cabeceras y datos
         df.columns = df.columns.str.strip()
         df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
         return df
@@ -64,22 +65,18 @@ with st.sidebar:
         st.session_state.messages = [{"role": "assistant", "content": "¡Hola! Historial limpiado. ¿En qué puedo ayudarte?"}]
         st.rerun()
 
-    # Contenedor para el log del agente
     st.session_state.log_container = st.container()
 
 # --- Lógica del Chat ---
 
-# Inicializar el historial de mensajes
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "¡Hola! Soy tu asistente de análisis de datos. ¿Qué te gustaría saber?"}]
 
 # Mostrar todos los mensajes del historial
 for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"], avatar="🧑‍💻" if msg["role"] == "user" else "🤖"):
-        # La respuesta completa (incluyendo texto y tabla markdown) se renderiza aquí
         st.markdown(msg["content"])
         
-        # Si el mensaje del asistente tiene una tabla, muestra el botón de descarga
         if msg["role"] == "assistant" and "df_for_download" in msg:
             if msg["df_for_download"] is not None:
                 st.download_button(
@@ -95,7 +92,7 @@ if prompt := st.chat_input("Ej: ¿Top 10 productos más vendidos en Reino Unido?
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.rerun()
 
-# Procesar y mostrar la respuesta del asistente (si el último mensaje es del usuario)
+# Procesar la respuesta del asistente
 if st.session_state.messages[-1]["role"] == "user":
     user_prompt = st.session_state.messages[-1]["content"]
     
@@ -107,18 +104,14 @@ if st.session_state.messages[-1]["role"] == "user":
                 response.raise_for_status()
                 data = response.json()
                 
-                # El backend ahora nos da el texto, que puede incluir una tabla markdown
                 full_answer_text = data.get("answer_text", "No se recibió respuesta.")
                 reasoning = data.get("reasoning", "No se recibió log.")
                 verdict = data.get("verdict", "No se recibió veredicto.")
                 
-                # Combinamos la respuesta y el veredicto en un solo bloque de markdown
                 final_content = f"{full_answer_text}\n\n---\n\n**Veredicto del Validador:**\n{verdict}"
                 
-                # Mostramos la respuesta completa
                 st.markdown(final_content)
                 
-                # FUNCIONALIDAD: Parsear la tabla para el botón de descarga
                 df_to_download = parse_markdown_table_to_df(full_answer_text)
                 if df_to_download is not None:
                     st.download_button(
@@ -129,13 +122,10 @@ if st.session_state.messages[-1]["role"] == "user":
                         key="download_current"
                     )
 
-                # FUNCIONALIDAD: Mostrar el log del agente con ajuste de texto
                 with st.session_state.log_container:
                     with st.expander("Log de Pensamiento del Agente (Última Consulta)", expanded=False):
-                        # Este truco de CSS es la solución definitiva para el ajuste de texto
                         st.markdown(f'```text\n{reasoning}\n```')
 
-                # Guardamos el contenido completo y el df para descarga en el historial
                 assistant_message = {
                     "role": "assistant",
                     "content": final_content,
@@ -151,5 +141,3 @@ if st.session_state.messages[-1]["role"] == "user":
                 error_message = f"Ocurrió un error inesperado: {e}"
                 st.error(error_message)
                 st.session_state.messages.append({"role": "assistant", "content": error_message})
-
-    # No es necesario un st.rerun() aquí, ya que la respuesta se muestra en el mismo flujo
