@@ -1,11 +1,13 @@
-fastapi
-uvicorn
-langchain
-langchain-community
-langchain-experimental
-google-generativeai
-langchain-google-genai
-SQLAlchemy
-pandas
+fastapi==0.110.0
+uvicorn==0.29.0
+pandas==2.2.1
 openpyxl
 requests
+SQLAlchemy==2.0.29
+
+# --- LangChain Stack ---
+langchain==0.1.16
+langchain-community==0.0.34
+langchain-experimental==0.0.57
+langchain-google-genai==1.0.2
+google-generativeai==0.5.2
