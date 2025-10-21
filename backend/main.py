@@ -28,35 +28,27 @@ class QueryResponse(BaseModel):
     verdict: str
 
 # --- FUNCIONES DE UTILIDAD ---
+# main.py -> REEMPLAZA TU FUNCIÓN con esta para la prueba
+
 def load_and_prepare_data():
     """
-    ¡ACCIÓN REQUERIDA!
-    Pega aquí tu lógica original para cargar y preparar los datos.
-    Asegúrate de que la función devuelva un DataFrame de Pandas si tiene éxito
-    o None si falla. El entorno de Cloud Run debe tener acceso a la fuente
-    de datos que uses (ej. si es una URL, no debe estar bloqueada).
+    FUNCIÓN DE PRUEBA: Carga datos desde una URL pública conocida.
+    Si el deploy funciona con esto, el problema está en tu lógica de carga original.
     """
     try:
-        # ===== INICIO DE TU CÓDIGO ORIGINAL =====
-        # Ejemplo:
-        # url = "http://archive.ics.uci.edu/ml/machine-learning-databases/00352/Online%20Retail.xlsx"
-        # df = pd.read_excel(url)
-        # ===== FIN DE TU CÓDIGO ORIGINAL =====
+        # Esta es una fuente de datos pública y clásica para e-commerce
+        url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00352/Online%20Retail.xlsx"
+        print(f"Cargando datos de prueba desde: {url}")
+        df = pd.read_excel(url)
         
-        # Ejemplo de limpieza que tenías:
-        df = pd.DataFrame() # <-- REEMPLAZA ESTA LÍNEA CON TU CARGA REAL
-        if df.empty: # Manejo por si la carga falla y devuelve un df vacío
-             print("La carga de datos resultó en un DataFrame vacío.")
-             return None
-
+        # Limpieza básica de los datos de prueba
         df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
         df.dropna(subset=['CustomerID'], inplace=True)
         df['CustomerID'] = df['CustomerID'].astype(int)
-        print("Datos cargados y preparados exitosamente.")
+        print("Datos de PRUEBA cargados y preparados exitosamente.")
         return df
     except Exception as e:
-        # Esta captura de errores es crucial para depurar en Cloud Run
-        print(f"Error CRÍTICO durante la carga de datos: {e}")
+        print(f"Error CRÍTICO durante la carga de datos de PRUEBA: {e}")
         return None
 
 def create_db_engine(df):
@@ -201,3 +193,4 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
