@@ -1,3 +1,5 @@
+# frontend/app.py - SIN CAMBIOS
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -5,36 +7,27 @@ import io
 import os
 import re
 
-# --- 1. CONFIGURACIÓN DE PÁGINA ---
 st.set_page_config(
     page_title="Asistente de Datos v3.1",
     page_icon="✅",
     layout="wide"
 )
 
-# --- 2. TÍTULOS Y MARCADOR DE VERSIÓN ---
 st.title("✅ Asistente de Análisis de Datos con Validación")
-st.header("Versión 3.1 - Endpoint Corregido") # <-- MARCADOR VISUAL
+st.header("Versión 3.1 - Endpoint Corregido")
 st.caption("Impulsado por Google Gemini y LangChain.")
 
-# --- 3. LÓGICA DE LA APLICACIÓN ---
-# La variable de entorno que pasaremos en el despliegue es la clave.
-# El valor por defecto ahora apunta a /ask.
+# ESTA LÍNEA ES CLAVE. Leerá la URL del entorno que le pasaremos al desplegar.
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000/ask")
 
 @st.cache_data
 def to_excel(df: pd.DataFrame) -> bytes:
-    """Convierte un DataFrame a un archivo Excel en memoria."""
     output = io.BytesIO()
     with pd.ExcelWriter(output, engine='openpyxl') as writer:
         df.to_excel(writer, index=False, sheet_name='Resultados')
     return output.getvalue()
 
 def parse_markdown_table_to_df(markdown_text: str):
-    """
-    Encuentra una tabla Markdown en el texto y la convierte a un DataFrame de Pandas.
-    Esto es necesario para poder habilitar la descarga a Excel.
-    """
     table_regex = re.compile(r"(\|.*\|(?:\n\|.*\|)+)")
     table_match = table_regex.search(markdown_text)
     if not table_match:
@@ -56,9 +49,6 @@ def parse_markdown_table_to_df(markdown_text: str):
     except Exception:
         return None
 
-# --- 4. INTERFAZ DE USUARIO ---
-
-# --- Barra Lateral (Sidebar) ---
 with st.sidebar:
     st.header("Opciones")
     if st.button("🧹 Limpiar Historial de Chat"):
@@ -67,12 +57,9 @@ with st.sidebar:
 
     st.session_state.log_container = st.container()
 
-# --- Lógica del Chat ---
-
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "¡Hola! Soy tu asistente de análisis de datos. ¿Qué te gustaría saber?"}]
 
-# Mostrar todos los mensajes del historial
 for i, msg in enumerate(st.session_state.messages):
     with st.chat_message(msg["role"], avatar="🧑‍💻" if msg["role"] == "user" else "🤖"):
         st.markdown(msg["content"])
@@ -87,12 +74,10 @@ for i, msg in enumerate(st.session_state.messages):
                     key=f"download_{i}"
                 )
 
-# Input del usuario
 if prompt := st.chat_input("Ej: ¿Top 10 productos más vendidos en Reino Unido?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.rerun()
 
-# Procesar la respuesta del asistente
 if st.session_state.messages[-1]["role"] == "user":
     user_prompt = st.session_state.messages[-1]["content"]
     
@@ -100,6 +85,7 @@ if st.session_state.messages[-1]["role"] == "user":
         with st.spinner("Analizando..."):
             try:
                 payload = {"question": user_prompt}
+                # Aquí se usa la URL que configuramos en el despliegue
                 response = requests.post(BACKEND_URL, json=payload, timeout=590)
                 response.raise_for_status()
                 data = response.json()
