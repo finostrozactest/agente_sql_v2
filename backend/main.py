@@ -161,4 +161,3 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
-
