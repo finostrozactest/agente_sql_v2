@@ -1,3 +1,5 @@
+# backend/main.py
+
 import os
 import pandas as pd
 import re
@@ -5,7 +7,7 @@ import io
 from contextlib import redirect_stdout
 from sqlalchemy import create_engine
 from fastapi import FastAPI, HTTPException
-from pantic import BaseModel
+from pydantic import BaseModel # <-- CORRECCIÓN: "pantic" cambiado a "pydantic"
 from contextlib import asynccontextmanager
 import functools
 
@@ -20,9 +22,8 @@ from langchain_community.utilities import SQLDatabase
 class QueryRequest(BaseModel):
     question: str
 
-# El backend ahora devuelve una estructura más simple
 class QueryResponse(BaseModel):
-    answer_text: str # Contendrá texto y la tabla markdown juntos
+    answer_text: str
     reasoning: str
     verdict: str
 
@@ -75,7 +76,6 @@ class QueryMaster:
             print(f"Error en el agente analista: {e}")
             raise
 
-        # La respuesta del agente ya contiene el texto y la tabla markdown juntos
         analyst_answer_raw = analyst_response.get("output", "No se pudo generar una respuesta.")
         
         print("\n--- [Paso 2: Iniciando Agente Validador] ---")
@@ -92,7 +92,6 @@ class QueryMaster:
         })
         print(f"\n--- [Veredicto del Validador] ---\n{verdict}")
 
-        # Devolvemos la respuesta cruda del agente, que es lo que el frontend espera
         return {
             "reasoning": clean_log,
             "answer_text": analyst_answer_raw,
@@ -148,14 +147,10 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# --- INICIO DE LOS CAMBIOS ---
-
-# 1. AÑADIMOS UN ENDPOINT DE VERIFICACIÓN
 @app.get("/")
 def read_root():
     return {"status": "Backend v3.1 - ¡Endpoint /ask está activo!"}
 
-# 2. CAMBIAMOS EL NOMBRE DEL ENDPOINT DE /query A /ask
 @app.post("/ask", response_model=QueryResponse)
 async def handle_query(request: QueryRequest):
     print(f"\n--- [NUEVA PETICIÓN en /ask]: {request.question} ---")
@@ -169,6 +164,3 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
-
-# --- FIN DE LOS CAMBIOS ---
-
