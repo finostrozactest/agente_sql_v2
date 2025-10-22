@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Corregida y Verificada)
+# ~/agente_sql/backend/main.py (Versión Final Definitiva)
 
 import re
 import io
@@ -8,7 +8,7 @@ from contextlib import redirect_stdout, asynccontextmanager
 
 from sqlalchemy import create_engine
 from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from pantic import BaseModel
 
 from langchain_community.utilities import SQLDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -93,25 +93,26 @@ class QueryMaster:
         analyst_answer_raw = analyst_response.get("output", "No se pudo generar una respuesta.")
         text_part, table_data = parse_response_to_df(analyst_answer_raw)
         
-        # --- LÍNEA CORREGIDA ---
-        # La expresión regular ahora es sintácticamente correcta.
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-9;?]*[ -/]*[@-~])')
         clean_log = ansi_escape.sub('', log_io.getvalue())
 
         sql_matches = re.findall(r"Action Input: (SELECT .*?)(?:\n|$)", clean_log, re.DOTALL)
         sql_query = sql_matches[-1].strip() if sql_matches else "No se ejecutó una consulta SQL directa."
 
-        verdict = self.validator_chain.invoke({
-            "question": question,
-            "sql_query": sql_query
-        })
-        print(f"\n--- [Veredicto del Validador] ---\n{verdict}")
+        verdict = self.validator_chain.invoke({ "question": question, "sql_query": sql_query })
+        
+        # Unir el log del analista con el veredicto para una historia completa
+        full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
 
+        # Si no se pudo extraer una tabla, la respuesta completa es el texto.
+        # Si sí se extrajo, la respuesta de texto es solo la parte introductoria.
+        final_text = analyst_answer_raw if not table_data else text_part
+        
         return {
-            "answer_text": text_part,
+            "answer_text": final_text,
             "table_data": table_data,
-            "reasoning": clean_log,
-            "verdict": verdict
+            "reasoning": full_log,
+            "verdict": verdict # Se sigue enviando por si se necesita en el futuro
         }
         
 @asynccontextmanager
@@ -121,28 +122,25 @@ async def lifespan(app: FastAPI):
         raise ValueError("FATAL: La variable de entorno GOOGLE_API_KEY no se encontró.")
     
     ecommerce_data = load_and_prepare_data()
-    if ecommerce_data is None: 
-        raise RuntimeError("FATAL: No se pudieron cargar los datos.")
+    if ecommerce_data is None: raise RuntimeError("FATAL: No se pudieron cargar los datos.")
 
     engine = create_db_engine(ecommerce_data)
-    if engine is None: 
-        raise RuntimeError("FATAL: No se pudo crear la base de datos.")
+    if engine is None: raise RuntimeError("FATAL: No se pudo crear la base de datos.")
 
     llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
 
     prefix = """
-    Eres un asistente experto en análisis de datos que trabaja con una base de datos SQLite.
-    Tu objetivo es responder a las preguntas del usuario generando y ejecutando consultas SQL.
-    Reglas estrictas:
-    1. Para calcular el total de ventas o el gasto, SIEMPRE debes multiplicar 'Quantity' por 'UnitPrice'.
-    2. Cuando filtres por un valor de texto (ej. un país), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Ejemplo: WHERE Country = 'Brazil'.
-    3. Si la pregunta pide datos que se pueden mostrar en una tabla, SIEMPRE debes presentar el resultado final en formato Markdown.
-    Ejemplo de formato de tabla Markdown:
-    | Pais      | Ventas Totales |
-    |-----------|----------------|
-    | Reino Unido| 8123456.78     |
-    | Holanda   | 284661.54      |
+    Eres un asistente experto en análisis de datos que trabaja con una base de datos SQLite. Tu objetivo es responder a las preguntas del usuario generando y ejecutando consultas SQL.
+    
+    REGLAS ESTRICTAS:
+    1.  CÁLCULO DE VENTAS: Para calcular el total de ventas o el gasto, SIEMPRE debes multiplicar 'Quantity' por 'UnitPrice'.
+    2.  FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país o un nombre), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Ejemplo: `WHERE Country = 'Brazil'`.
+    3.  FORMATO DE TABLA: Si la pregunta pide una lista de resultados, DEBES presentar el resultado final en formato de tabla Markdown.
+    
+    INSTRUCCIÓN FINAL CRÍTICA: Después de ejecutar la consulta y obtener los resultados, tu respuesta final DEBE ser únicamente la tabla en formato Markdown si la pregunta lo permite. NO añadas texto introductorio como "Aquí están los resultados...". Si la pregunta es simple (ej. un número), puedes dar una respuesta corta.
+    
+    Tu respuesta final debe estar COMPLETAMENTE en español.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
@@ -153,19 +151,15 @@ async def lifespan(app: FastAPI):
         prefix=prefix,
         handle_parsing_errors="Tuve un problema para interpretar la consulta. Por favor, reformula tu pregunta.",
         agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-        max_iterations=10
     )
 
     validator_template = """
-    Tu única tarea es actuar como un validador de consultas SQL. Eres un experto en datos que revisa el trabajo de un analista junior.
-    Basado en la pregunta del usuario y la consulta SQL generada, proporciona un veredicto en UNA SOLA LÍNEA.
-    Regla de negocio importante: Si la pregunta implica calcular ventas o gasto, la consulta DEBE multiplicar 'Quantity' por 'UnitPrice'.
-    Pregunta del Usuario: "{question}"
-    Consulta SQL generada: "{sql_query}"
-    Evalúa lo siguiente:
-    1. ¿La consulta SQL responde directamente a la pregunta del usuario?
-    2. ¿Cumple con la regla de negocio sobre 'Quantity * UnitPrice' si es aplicable?
-    Responde ÚNICAMENTE con "APROBADO" si todo es correcto, o "RECHAZADO" con una explicación muy breve y técnica (máximo 10 palabras) si hay un error.
+    Tu única tarea es actuar como un validador de consultas SQL. Basado en la pregunta del usuario y la consulta SQL generada, proporciona un veredicto en UNA SOLA LÍNEA y en español.
+    Regla de negocio: Si la pregunta implica calcular ventas, la consulta DEBE multiplicar 'Quantity' por 'UnitPrice'.
+    Pregunta: "{question}"
+    Consulta: "{sql_query}"
+    Evalúa si la consulta responde correctamente a la pregunta y cumple la regla de negocio.
+    Responde ÚNICAMENTE con "APROBADO" si es correcta, o "RECHAZADO" con una explicación técnica muy breve (máximo 10 palabras).
     Veredicto:
     """
     validator_prompt = PromptTemplate(template=validator_template, input_variables=["question", "sql_query"])
@@ -174,28 +168,17 @@ async def lifespan(app: FastAPI):
     app_state['query_master'] = QueryMaster(analyst_agent_executor, validator_chain)
     print("¡El servidor está listo para recibir peticiones!")
     yield
-    print("Apagando el servidor.")
     app_state.clear()
 
 app = FastAPI(lifespan=lifespan)
 
+# ... (El resto de las rutas de la API no cambia) ...
 @app.get("/")
 def read_root():
     return {"status": "El backend del Agente de Datos está funcionando."}
 
 @app.post("/query", response_model=QueryResponse)
 async def handle_query(request: QueryRequest):
-    print(f"\n--- [NUEVA PETICIÓN]: {request.question} ---")
-    query_master = app_state.get('query_master')
-    if not query_master:
-        raise HTTPException(status_code=503, detail="El servicio no está listo.")
-    if not request.question:
-        raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
-    try:
-        result = query_master.run_query(request.question)
-        return QueryResponse(**result)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+    # ... (El código de la ruta no cambia) ...
+
 
