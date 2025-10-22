@@ -132,7 +132,7 @@ async def lifespan(app: FastAPI):
     engine = create_db_engine(ecommerce_data)
     if engine is None: raise RuntimeError("FATAL: No se pudo crear la base de datos.")
 
-    llm = ChatGoogleGenerativeAI(model="gemini-1.0-pro", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
 
     prefix = """
@@ -191,4 +191,5 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
 
