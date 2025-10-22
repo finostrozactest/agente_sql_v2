@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from langchain_community.utilities import SQLDatabase
-from langchain_google_genai import ChatGoogleGenerai
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.agents import create_sql_agent, AgentType
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain_core.prompts import PromptTemplate
@@ -211,3 +211,4 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
