@@ -1,5 +1,4 @@
-
-# ~/agente_sql/backend/main.py (Versión Final Definitiva - Implementando la Lógica de tu Ejemplo)
+# ~/agente_sql/backend/main.py (Versión Mejorada)
 
 import re
 import io
@@ -54,7 +53,7 @@ def create_db_engine(df):
 
 def parse_response_to_df(response_text: str):
     """
-    Inspirado en tu ejemplo: Separa el texto de la tabla Markdown.
+    Separa el texto de la tabla Markdown.
     Devuelve el texto introductorio y una lista de diccionarios si tiene éxito.
     """
     table_regex = re.compile(r"(\|.*\|(?:\n\|.*\|)+)")
@@ -108,7 +107,7 @@ class QueryMaster:
         full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
         
         return {
-            "answer_text": text_part or "Aquí están los resultados de tu consulta:",
+            "answer_text": text_part or "Aquí está la base de datos solicitada:",
             "table_data": table_data,
             "reasoning": full_log,
             "verdict": verdict
@@ -128,14 +127,17 @@ async def lifespan(app: FastAPI):
 
     llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
-
+    
+    # --- PROMPT MEJORADO ---
     prefix = """
-    Eres un asistente experto en análisis de datos que trabaja con una base de datos SQLite. Tu objetivo es responder a las preguntas del usuario generando y ejecutando consultas SQL.
-    REGLAS ESTRICTAS:
-    1. CÁLCULO DE VENTAS: Para calcular el total de ventas o el gasto, SIEMPRE debes multiplicar 'Quantity' por 'UnitPrice'.
-    2. FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país o un nombre), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Ejemplo: `WHERE Country = 'Brazil'`.
-    3. FORMATO DE TABLA: Si la pregunta pide datos que se pueden mostrar en una tabla, SIEMPRE debes presentar el resultado final en formato de tabla Markdown.
-    4. Tu respuesta final debe estar COMPLETAMENTE en español.
+    Eres un agente de extracción de datos SQL altamente especializado. Tu único objetivo es interpretar la solicitud del usuario, generar la consulta SQL necesaria y devolver los datos solicitados. No eres un asistente conversacional.
+    Tu foco principal es entender, calcular si es necesario, y entregar la base de datos para su descarga. No debes responder preguntas generales.
+
+    REGLAS ABSOLUTAS E INQUEBRANTABLES:
+    1.  **SALIDA ÚNICA**: Tu respuesta final DEBE ser únicamente la tabla de datos en formato Markdown. No agregues introducciones, explicaciones, resúmenes o cualquier texto conversacional. La tabla es tu única respuesta.
+    2.  **IDIOMA**: Toda tu salida, incluyendo los encabezados de las columnas en la tabla, DEBE estar en español.
+    3.  **CÁLCULO DE VENTAS**: Para calcular cualquier métrica de ventas, gasto o total, SIEMPRE debes multiplicar la columna 'Quantity' por 'UnitPrice'. Es un requisito de negocio obligatorio.
+    4.  **FILTROS DE TEXTO**: Al filtrar por valores de texto (como un país, descripción, etc.), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Por ejemplo: `WHERE Country = 'France'`.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
