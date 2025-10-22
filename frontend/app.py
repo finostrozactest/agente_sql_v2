@@ -1,5 +1,4 @@
-
-# ~/agente_sql/frontend/app.py (Versión Final Verificada)
+# ~/agente_sql/frontend/app.py (Versión Final 100% Completa)
 
 import streamlit as st
 import pandas as pd
@@ -55,8 +54,9 @@ for i, msg in enumerate(st.session_state.messages):
             df = pd.DataFrame(msg["table_data"])
             st.caption(f"Mostrando {len(df)} filas.")
             st.dataframe(df, use_container_width=True, hide_index=True)
+            
             st.download_button(
-                label="📥 Descargar Excel",
+                label="📥 Descargar Resultado (Excel)",
                 data=to_excel(df),
                 file_name=f"resultado_{i}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheet.sheet",
@@ -69,6 +69,7 @@ if prompt := st.chat_input("Ej: ¿Top 5 clientes en Francia por gasto total?"):
 
 if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     user_prompt = st.session_state.messages[-1]["content"]
+    
     assistant_message = {"role": "assistant"}
     with st.chat_message("assistant", avatar="🤖"):
         with st.spinner("Analizando, consultando y validando..."):
@@ -95,3 +96,4 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     
     st.session_state.messages.append(assistant_message)
     st.rerun()
+
