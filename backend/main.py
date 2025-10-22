@@ -1,10 +1,10 @@
-# ~/agente_sql/backend/main.py (Versión Final Definitiva y Robusta)
+
+# ~/agente_sql/backend/main.py (Versión Final Definitiva - Implementando la Lógica de tu Ejemplo)
 
 import re
 import io
 import os
 import pandas as pd
-import ast
 from contextlib import redirect_stdout, asynccontextmanager
 
 from sqlalchemy import create_engine
@@ -52,30 +52,32 @@ def create_db_engine(df):
         print(f"Error al crear la base de datos en memoria: {e}")
         return None
 
-def extract_sql_observation(log: str, query: str) -> pd.DataFrame:
+def parse_response_to_df(response_text: str):
     """
-    Estrategia robusta: Extrae la observación de datos y los nombres de las columnas
-    directamente del log de pensamiento del agente.
+    Inspirado en tu ejemplo: Separa el texto de la tabla Markdown.
+    Devuelve el texto introductorio y una lista de diccionarios si tiene éxito.
     """
+    table_regex = re.compile(r"(\|.*\|(?:\n\|.*\|)+)")
+    table_match = table_regex.search(response_text)
+    
+    if not table_match:
+        return response_text, []
+
+    table_str = table_match.group(0)
+    text_part = response_text.replace(table_str, "").strip()
+
     try:
-        observation_match = re.search(r"Observation:\s*(\[.*?\])", log, re.DOTALL)
-        if not observation_match:
-            return pd.DataFrame()
-
-        data_str = observation_match.group(1)
-        data = ast.literal_eval(data_str)
-
-        columns_match = re.search(r"SELECT\s+(.*?)\s+FROM", query, re.IGNORECASE | re.DOTALL)
-        if not columns_match:
-            return pd.DataFrame()
-
-        columns_str = columns_match.group(1).replace('"', '')
-        columns = [col.split(' as ')[-1].strip() for col in columns_str.split(',')]
-
-        return pd.DataFrame(data, columns=columns)
+        lines = table_str.strip().split("\n")
+        if len(lines) > 1 and all(c in '|-: ' for c in lines[1]):
+            del lines[1]
+        
+        csv_like = "\n".join([line.strip().strip('|').replace('|', ',') for line in lines])
+        df = pd.read_csv(io.StringIO(csv_like), skipinitialspace=True)
+        df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+        return text_part, df.to_dict(orient='records')
     except Exception as e:
-        print(f"No se pudo extraer la tabla del log, se usará la respuesta final. Error: {e}")
-        return pd.DataFrame()
+        print(f"Error al parsear tabla markdown, devolviendo texto original. Error: {e}")
+        return response_text, []
 
 app_state = {}
 
@@ -94,6 +96,8 @@ class QueryMaster:
             raise HTTPException(status_code=500, detail=f"El agente analista falló: {e}")
 
         analyst_answer_raw = analyst_response.get("output", "No se pudo generar una respuesta.")
+        text_part, table_data = parse_response_to_df(analyst_answer_raw)
+        
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-9;?]*[ -/]*[@-~])')
         clean_log = ansi_escape.sub('', log_io.getvalue())
 
@@ -101,20 +105,10 @@ class QueryMaster:
         sql_query = sql_matches[-1].strip() if sql_matches else "No se ejecutó una consulta SQL directa."
 
         verdict = self.validator_chain.invoke({ "question": question, "sql_query": sql_query })
-        
         full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
         
-        df = extract_sql_observation(clean_log, sql_query)
-        
-        if not df.empty:
-            answer_text = f"He encontrado {len(df)} resultados para tu consulta."
-            table_data = df.to_dict(orient='records')
-        else:
-            answer_text = analyst_answer_raw
-            table_data = []
-
         return {
-            "answer_text": answer_text,
+            "answer_text": text_part or "Aquí están los resultados de tu consulta:",
             "table_data": table_data,
             "reasoning": full_log,
             "verdict": verdict
@@ -140,7 +134,8 @@ async def lifespan(app: FastAPI):
     REGLAS ESTRICTAS:
     1. CÁLCULO DE VENTAS: Para calcular el total de ventas o el gasto, SIEMPRE debes multiplicar 'Quantity' por 'UnitPrice'.
     2. FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país o un nombre), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Ejemplo: `WHERE Country = 'Brazil'`.
-    3. Tu respuesta final debe estar COMPLETAMENTE en español.
+    3. FORMATO DE TABLA: Si la pregunta pide datos que se pueden mostrar en una tabla, SIEMPRE debes presentar el resultado final en formato de tabla Markdown.
+    4. Tu respuesta final debe estar COMPLETAMENTE en español.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
@@ -168,6 +163,7 @@ async def lifespan(app: FastAPI):
     app_state['query_master'] = QueryMaster(analyst_agent_executor, validator_chain)
     print("¡El servidor está listo para recibir peticiones!")
     yield
+    print("Apagando el servidor.")
     app_state.clear()
 
 app = FastAPI(lifespan=lifespan)
@@ -191,5 +187,3 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
-
-
