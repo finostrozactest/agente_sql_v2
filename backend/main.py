@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final Corregida y Reforzada)
+# ~/agente_sql/backend/main.py (Versión Final con Inyección de Instrucciones)
 
 import re
 import io
@@ -56,11 +56,9 @@ def parse_response_to_df(response_text: str):
     table_match = table_regex.search(response_text)
     
     if not table_match:
-        # Si no hay tabla, asumimos que toda la respuesta es texto conversacional (un fallback)
         return response_text, []
 
     table_str = table_match.group(0)
-    # Dejamos la parte de texto vacía, ya que la tabla es el único objetivo
     text_part = ""
 
     try:
@@ -123,43 +121,17 @@ async def lifespan(app: FastAPI):
     engine = create_db_engine(ecommerce_data)
     if engine is None: raise RuntimeError("FATAL: No se pudo crear la base de datos.")
 
-    llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0)
     db = SQLDatabase(engine=engine)
     
-    # --- PROMPT MEJORADO Y REFORZADO ---
-    # Este es el cambio principal para forzar el comportamiento deseado.
+    # Mantenemos el prefix para dar el contexto general, pero el refuerzo lo haremos en el input.
     prefix = """
-    Eres un sistema automatizado de generación de tablas SQL. Tu única función es convertir una solicitud de usuario en una tabla de datos en formato Markdown. No dialogas. No explicas. Solo generas la tabla.
-
-    A continuación se muestran ejemplos de cómo debes actuar:
-
-    # EJEMPLO 1
-    Pregunta del Usuario: "dame los 5 clientes que más gastaron en Alemania"
-    Respuesta Final Esperada:
-    | CustomerID | Gasto_Total |
-    |------------|-------------|
-    | 12345      | 5000.0      |
-    | 67890      | 4500.0      |
-    | 11223      | 4200.0      |
-    | 44556      | 3900.0      |
-    | 77889      | 3850.0      |
-
-    # EJEMPLO 2
-    Pregunta del Usuario: "muéstrame la venta total por país, excluyendo a Reino Unido"
-    Respuesta Final Esperada:
-    | País      | Venta_Total |
-    |-----------|-------------|
-    | Holanda   | 284661.54   |
-    | EIRE      | 263276.82   |
-    | Alemania  | 221698.21   |
-    | Francia   | 200871.29   |
+    Eres un sistema automatizado de generación de tablas SQL. Tu única función es convertir una solicitud de usuario en una tabla de datos en formato Markdown.
     
-    REGLAS ABSOLUTAS E INQUEBRANTABLES QUE DEBES SEGUIR:
-
-    1.  **REGLA DE SALIDA Y FORMATO**: Tu única salida DEBE SER SIEMPRE una tabla en formato Markdown. NUNCA, bajo NINGUNA circunstancia, incluyas texto, saludos, introducciones, explicaciones o resúmenes. Tu respuesta final es SOLO la tabla. NADA MÁS.
-    2.  **REGLA DE IDIOMA ESPAÑOL**: TODO, absolutamente TODO en tu respuesta, DEBE estar en español. Esto incluye los encabezados de las columnas de la tabla final. Si una columna se llama 'Country', en la tabla final DEBE llamarse 'País'. Si se llama 'TotalSpent', DEBE ser 'Gasto_Total'. Traduce SIEMPRE los encabezados a un español claro y descriptivo.
-    3.  **REGLA DE CÁLCULO DE VENTAS**: Para calcular cualquier métrica de ventas, gasto o total, SIEMPRE debes multiplicar la columna 'Quantity' por 'UnitPrice'. Es un requisito de negocio obligatorio.
-    4.  **REGLA DE FILTROS DE TEXTO**: Al filtrar por valores de texto (como un país, descripción, etc.), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Por ejemplo: `WHERE Country = 'France'`.
+    REGLAS GENERALES:
+    1.  **REGLA DE CÁLCULO DE VENTAS**: Para calcular cualquier métrica de ventas, gasto o total, SIEMPRE debes multiplicar la columna 'Quantity' por 'UnitPrice'.
+    2.  **REGLA DE FILTROS DE TEXTO**: Al filtrar por valores de texto (como un país), SIEMPRE debes usar comillas simples. Ejemplo: `WHERE Country = 'Germany'`.
+    3.  **REGLA DE IDIOMA**: Debes comprender y procesar la solicitud en español.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
@@ -204,8 +176,22 @@ async def handle_query(request: QueryRequest):
         raise HTTPException(status_code=503, detail="El servicio no está listo.")
     if not request.question:
         raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
+    
+    # --- ¡ESTA ES LA SOLUCIÓN! ---
+    # Creamos un sufijo con la instrucción explícita y lo añadimos a la pregunta del usuario.
+    # Esto fuerza al agente a seguir la regla en el contexto inmediato de la pregunta actual.
+    instruction_suffix = (
+        "\n\n---\n"
+        "INSTRUCCIÓN DE FORMATO OBLIGATORIA: dame el resultado como tabla y responde en español"
+    )
+    
+    modified_question = f"{request.question}{instruction_suffix}"
+    
+    print(f"--- [INPUT MODIFICADO PARA EL AGENTE]: {modified_question} ---")
+
     try:
-        result = query_master.run_query(request.question)
+        # Enviamos la pregunta modificada al agente
+        result = query_master.run_query(modified_question)
         return QueryResponse(**result)
     except Exception as e:
         import traceback
