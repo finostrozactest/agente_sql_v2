@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final Definitiva y Robusta)
+# ~/agente_sql/backend/main.py (Versión Final con Prefijo en Input)
 
 import re
 import io
@@ -59,7 +59,8 @@ def parse_response_to_df(response_text: str):
         return response_text, []
 
     table_str = table_match.group(0)
-    text_part = ""
+    # El texto introductorio se ignora, ya que la tabla es el objetivo principal.
+    text_part = response_text.replace(table_str, "").strip()
 
     try:
         lines = table_str.strip().split("\n")
@@ -69,6 +70,7 @@ def parse_response_to_df(response_text: str):
         csv_like = "\n".join([line.strip().strip('|').replace('|', ',') for line in lines])
         df = pd.read_csv(io.StringIO(csv_like), skipinitialspace=True)
         df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
+        # Devolvemos el texto que haya podido quedar y la tabla parseada
         return text_part, df.to_dict(orient='records')
     except Exception as e:
         print(f"Error al parsear tabla markdown, devolviendo texto original. Error: {e}")
@@ -93,6 +95,9 @@ class QueryMaster:
         analyst_answer_raw = analyst_response.get("output", "No se pudo generar una respuesta.")
         text_part, table_data = parse_response_to_df(analyst_answer_raw)
         
+        # Si parseamos una tabla, nos aseguramos de no enviar texto residual
+        final_text = "" if table_data else text_part
+
         ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-9;?]*[ -/]*[@-~])')
         clean_log = ansi_escape.sub('', log_io.getvalue())
 
@@ -103,7 +108,7 @@ class QueryMaster:
         full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
         
         return {
-            "answer_text": text_part,
+            "answer_text": final_text,
             "table_data": table_data,
             "reasoning": full_log,
             "verdict": verdict
@@ -124,43 +129,14 @@ async def lifespan(app: FastAPI):
     llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
     
-    # --- PROMPT DE SISTEMA (PREFIX) REFORZADO Y DEFINITIVO ---
+    # Mantenemos un prefix simple que establece el rol y las reglas de negocio.
+    # La instrucción de formato se manejará en el input.
     prefix = """
-    Eres un bot de extracción de datos SQL altamente especializado. Tu ÚNICO propósito es recibir una pregunta en lenguaje natural y devolver el resultado de la consulta SQL correspondiente como una ÚNICA tabla en formato Markdown.
+    Eres un asistente experto en análisis de datos que trabaja con una base de datos SQLite. Tu objetivo es responder a las preguntas del usuario generando y ejecutando consultas SQL, entregando el resultado como tabla y respondiendo SIEMPRE en español.
 
-    SIGUE ESTAS REGLAS INQUEBRANTABLES:
-
-    REGLA #1: FORMATO DE SALIDA
-    Tu respuesta final DEBE ser solo la tabla Markdown. NO incluyas NINGÚN texto introductorio, explicaciones, saludos o resúmenes. La tabla es tu única salida permitida.
-
-    REGLA #2: IDIOMA
-    La tabla resultante y, de manera CRÍTICA, todos sus encabezados de columna, DEBEN estar completamente en español. Traduce los nombres de las columnas de la base de datos a un español claro y legible. Ejemplo: 'Country' se convierte en 'País', 'SUM(Quantity * UnitPrice)' se convierte en 'Venta_Total'.
-
-    REGLA #3: CÁLCULOS
-    Para cualquier cálculo de "ventas", "gasto", "ingresos" o "total", SIEMPRE multiplica 'Quantity' por 'UnitPrice'.
-
-    A continuación se muestran ejemplos del comportamiento correcto:
-
-    <ejemplo>
-    Pregunta: "Top 3 países por ventas"
-    Respuesta:
-    | País          | Venta_Total |
-    |---------------|-------------|
-    | Reino Unido   | 8187806.24  |
-    | Países Bajos  | 284661.54   |
-    | EIRE          | 263276.82   |
-    </ejemplo>
-
-    <ejemplo>
-    Pregunta: "dame los datos del cliente con id 12350"
-    Respuesta:
-    | InvoiceNo | StockCode | Description                          | Quantity | InvoiceDate               | UnitPrice | CustomerID | Country       |
-    |-----------|-----------|--------------------------------------|----------|---------------------------|-----------|------------|---------------|
-    | 536378    | 21578     | ROUND SNACK BOXES SET OF 4 FRUITS    | 6        | 2010-12-01 09:37:00       | 2.95      | 12350      | Channel Islands |
-    | 536378    | 21992     | VINTAGE PAISLEY STATIONERY SET       | 12       | 2010-12-01 09:37:00       | 2.55      | 12350      | Channel Islands |
-    </ejemplo>
-
-    Ahora, procesa la siguiente pregunta del usuario. Recuerda, tu única respuesta debe ser la tabla en Markdown y en español.
+    REGLAS DE NEGOCIO OBLIGATORIAS:
+    1. CÁLCULO DE VENTAS: Para calcular el total de ventas o el gasto, SIEMPRE debes multiplicar 'Quantity' por 'UnitPrice'.
+    2. FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país), SIEMPRE debes usar comillas simples. Ejemplo: `WHERE Country = 'France'`.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
@@ -174,7 +150,7 @@ async def lifespan(app: FastAPI):
     )
 
     validator_template = """
-    Tu única tarea es actuar como un validador de consultas SQL. Basado en la pregunta del usuario y la consulta SQL generada, proporciona un veredicto en UNA SOLA LÍNEA y en español.
+    Tu única tarea es actuar como un validador de consultas SQL. Basado en la pregunta del usuario y la consulta SQL generada, proporciona un veredicto en UNA SOLA LÍNEA y en español. Obliga al agente en responder en formato tabla Markdown y en español.
     Regla de negocio: Si la pregunta implica calcular ventas, la consulta DEBE multiplicar 'Quantity' por 'UnitPrice'.
     Pregunta: "{question}"
     Consulta: "{sql_query}"
@@ -199,17 +175,23 @@ def read_root():
 
 @app.post("/query", response_model=QueryResponse)
 async def handle_query(request: QueryRequest):
-    # Se elimina la modificación del input. Se envía la pregunta original directamente.
-    print(f"\n--- [NUEVA PETICIÓN]: {request.question} ---")
     query_master = app_state.get('query_master')
     if not query_master:
         raise HTTPException(status_code=503, detail="El servicio no está listo.")
     if not request.question:
         raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
     
+    # --- ¡SOLUCIÓN IMPLEMENTADA CORRECTAMENTE! ---
+    # Se antepone un texto fijo a la pregunta del usuario.
+    fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español. La pregunta es:"
+    modified_question = f"{fixed_instruction} {request.question}"
+    
+    print(f"\n--- [INPUT ORIGINAL]: {request.question} ---")
+    print(f"--- [INPUT MODIFICADO PARA EL AGENTE]: {modified_question} ---")
+
     try:
-        # Enviamos la pregunta original y sin modificar al agente.
-        result = query_master.run_query(request.question)
+        # Enviamos la pregunta modificada al agente
+        result = query_master.run_query(modified_question)
         return QueryResponse(**result)
     except Exception as e:
         import traceback
