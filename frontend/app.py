@@ -1,4 +1,4 @@
-# ~/agente_sql/frontend/app.py (Versión Final 100% Completa)
+# ~/agente_sql/frontend/app.py (Versión Mejorada)
 
 import streamlit as st
 import pandas as pd
@@ -6,7 +6,10 @@ import requests
 import io
 import os
 
-st.set_page_config(page_title="Asistente de Datos v2.0", page_icon="✅", layout="wide")
+st.set_page_config(page_title="Autoconsulta IA", page_icon="🤖", layout="wide")
+
+# URL del ícono del agente
+AGENT_AVATAR = "https://images.seeklogo.com/logo-png/49/2/sodimac-warehouse-logo-png_seeklogo-494670.png"
 
 st.markdown("""
 <style>
@@ -15,8 +18,9 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("✅ Asistente de Análisis de Datos con Validación")
-st.caption("Impulsado por Google Gemini, LangChain y Cloud Run.")
+# 1. & 2. Título y subtítulo cambiados
+st.title("Autoconsulta IA")
+st.caption("Realizado por Business Analytics - BI Chile")
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://127.0.0.1:8000/query")
 
@@ -39,31 +43,37 @@ if "last_log" in st.session_state and st.session_state.last_log:
     log_expander.code(st.session_state.last_log, language='text')
 
 if "messages" not in st.session_state:
-    st.session_state.messages = [{"role": "assistant", "content": "¡Hola! Soy tu asistente. La base de datos está lista. ¿Qué te gustaría saber?"}]
+    # 3. Mensaje inicial cambiado
+    st.session_state.messages = [{"role": "assistant", "content": "Hola! te puedo ayudar a descargar bases de datos, cuéntame que necesitas?"}]
 
 for i, msg in enumerate(st.session_state.messages):
-    avatar = "🧑‍💻" if msg["role"] == "user" else "🤖"
-    with st.chat_message(msg["role"], avatar=avatar):
+    # 5. Ícono del agente cambiado
+    avatar_url = AGENT_AVATAR if msg["role"] == "assistant" else "🧑‍💻"
+    with st.chat_message(msg["role"], avatar=avatar_url):
         if "content" in msg:
             st.markdown(msg["content"])
         
         if "answer_text" in msg and msg["answer_text"]:
             st.markdown(msg["answer_text"])
         
+        # 7. El resultado se muestra como tabla interactiva
         if "table_data" in msg and msg["table_data"]:
             df = pd.DataFrame(msg["table_data"])
             st.caption(f"Mostrando {len(df)} filas.")
+            # st.dataframe es interactivo: permite ordenar por columnas
             st.dataframe(df, use_container_width=True, hide_index=True)
             
+            # 8. Botón para descargar Excel
             st.download_button(
-                label="📥 Descargar Resultado (Excel)",
+                label="Descargar Excel",
                 data=to_excel(df),
                 file_name=f"resultado_{i}.xlsx",
                 mime="application/vnd.openxmlformats-officedocument.spreadsheet.sheet",
                 key=f"download_{i}"
             )
 
-if prompt := st.chat_input("Ej: ¿Top 5 clientes en Francia por gasto total?"):
+# 4. Texto del input cambiado
+if prompt := st.chat_input("Ej: Dame una base de la familia 0415 con la venta, contribucion y margen en el año 2024, por grupo y conjunto"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.rerun()
 
@@ -71,7 +81,8 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     user_prompt = st.session_state.messages[-1]["content"]
     
     assistant_message = {"role": "assistant"}
-    with st.chat_message("assistant", avatar="🤖"):
+    # 5. Ícono del agente cambiado
+    with st.chat_message("assistant", avatar=AGENT_AVATAR):
         with st.spinner("Analizando, consultando y validando..."):
             try:
                 payload = {"question": user_prompt}
@@ -96,4 +107,5 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     
     st.session_state.messages.append(assistant_message)
     st.rerun()
+
 
