@@ -32,23 +32,24 @@ class QueryResponse(BaseModel):
 
 def load_and_prepare_data():
     """
-    FUNCIÓN DE PRUEBA: Carga datos desde una URL pública conocida.
-    Si el deploy funciona con esto, el problema está en tu lógica de carga original.
+    Carga y prepara los datos del e-commerce desde la URL pública.
     """
     try:
-        # Esta es una fuente de datos pública y clásica para e-commerce
+        # Esta es la fuente de datos pública y clásica para e-commerce
         url = "https://archive.ics.uci.edu/ml/machine-learning-databases/00352/Online%20Retail.xlsx"
-        print(f"Cargando datos de prueba desde: {url}")
+        print(f"Cargando datos desde la URL: {url}")
         df = pd.read_excel(url)
-        
-        # Limpieza básica de los datos de prueba
+
+        # Limpieza de los datos
+        print("Datos cargados. Iniciando limpieza...")
         df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
         df.dropna(subset=['CustomerID'], inplace=True)
         df['CustomerID'] = df['CustomerID'].astype(int)
-        print("Datos de PRUEBA cargados y preparados exitosamente.")
+        print("Datos cargados y preparados exitosamente.")
         return df
     except Exception as e:
-        print(f"Error CRÍTICO durante la carga de datos de PRUEBA: {e}")
+        # Esta captura de errores es crucial para depurar en Cloud Run
+        print(f"Error CRÍTICO durante la carga de datos: {e}")
         return None
 
 def create_db_engine(df):
@@ -193,6 +194,7 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
 
 
 
