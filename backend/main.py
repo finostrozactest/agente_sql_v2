@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Mejorada)
+# ~/agente_sql/backend/main.py (Versión Final Corregida y Reforzada)
 
 import re
 import io
@@ -11,7 +11,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from langchain_community.utilities import SQLDatabase
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenerai
 from langchain.agents import create_sql_agent, AgentType
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain_core.prompts import PromptTemplate
@@ -52,18 +52,16 @@ def create_db_engine(df):
         return None
 
 def parse_response_to_df(response_text: str):
-    """
-    Separa el texto de la tabla Markdown.
-    Devuelve el texto introductorio y una lista de diccionarios si tiene éxito.
-    """
     table_regex = re.compile(r"(\|.*\|(?:\n\|.*\|)+)")
     table_match = table_regex.search(response_text)
     
     if not table_match:
+        # Si no hay tabla, asumimos que toda la respuesta es texto conversacional (un fallback)
         return response_text, []
 
     table_str = table_match.group(0)
-    text_part = response_text.replace(table_str, "").strip()
+    # Dejamos la parte de texto vacía, ya que la tabla es el único objetivo
+    text_part = ""
 
     try:
         lines = table_str.strip().split("\n")
@@ -107,7 +105,7 @@ class QueryMaster:
         full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
         
         return {
-            "answer_text": text_part or "Aquí está la base de datos solicitada:",
+            "answer_text": text_part,
             "table_data": table_data,
             "reasoning": full_log,
             "verdict": verdict
@@ -128,16 +126,40 @@ async def lifespan(app: FastAPI):
     llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
     
-    # --- PROMPT MEJORADO ---
+    # --- PROMPT MEJORADO Y REFORZADO ---
+    # Este es el cambio principal para forzar el comportamiento deseado.
     prefix = """
-    Eres un agente de extracción de datos SQL altamente especializado. Tu único objetivo es interpretar la solicitud del usuario, generar la consulta SQL necesaria y devolver los datos solicitados. No eres un asistente conversacional.
-    Tu foco principal es entender, calcular si es necesario, y entregar la base de datos para su descarga. No debes responder preguntas generales.
+    Eres un sistema automatizado de generación de tablas SQL. Tu única función es convertir una solicitud de usuario en una tabla de datos en formato Markdown. No dialogas. No explicas. Solo generas la tabla.
 
-    REGLAS ABSOLUTAS E INQUEBRANTABLES:
-    1.  **SALIDA ÚNICA**: Tu respuesta final DEBE ser únicamente la tabla de datos en formato Markdown. No agregues introducciones, explicaciones, resúmenes o cualquier texto conversacional. La tabla es tu única respuesta.
-    2.  **IDIOMA**: Toda tu salida, incluyendo los encabezados de las columnas en la tabla, DEBE estar en español.
-    3.  **CÁLCULO DE VENTAS**: Para calcular cualquier métrica de ventas, gasto o total, SIEMPRE debes multiplicar la columna 'Quantity' por 'UnitPrice'. Es un requisito de negocio obligatorio.
-    4.  **FILTROS DE TEXTO**: Al filtrar por valores de texto (como un país, descripción, etc.), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Por ejemplo: `WHERE Country = 'France'`.
+    A continuación se muestran ejemplos de cómo debes actuar:
+
+    # EJEMPLO 1
+    Pregunta del Usuario: "dame los 5 clientes que más gastaron en Alemania"
+    Respuesta Final Esperada:
+    | CustomerID | Gasto_Total |
+    |------------|-------------|
+    | 12345      | 5000.0      |
+    | 67890      | 4500.0      |
+    | 11223      | 4200.0      |
+    | 44556      | 3900.0      |
+    | 77889      | 3850.0      |
+
+    # EJEMPLO 2
+    Pregunta del Usuario: "muéstrame la venta total por país, excluyendo a Reino Unido"
+    Respuesta Final Esperada:
+    | País      | Venta_Total |
+    |-----------|-------------|
+    | Holanda   | 284661.54   |
+    | EIRE      | 263276.82   |
+    | Alemania  | 221698.21   |
+    | Francia   | 200871.29   |
+    
+    REGLAS ABSOLUTAS E INQUEBRANTABLES QUE DEBES SEGUIR:
+
+    1.  **REGLA DE SALIDA Y FORMATO**: Tu única salida DEBE SER SIEMPRE una tabla en formato Markdown. NUNCA, bajo NINGUNA circunstancia, incluyas texto, saludos, introducciones, explicaciones o resúmenes. Tu respuesta final es SOLO la tabla. NADA MÁS.
+    2.  **REGLA DE IDIOMA ESPAÑOL**: TODO, absolutamente TODO en tu respuesta, DEBE estar en español. Esto incluye los encabezados de las columnas de la tabla final. Si una columna se llama 'Country', en la tabla final DEBE llamarse 'País'. Si se llama 'TotalSpent', DEBE ser 'Gasto_Total'. Traduce SIEMPRE los encabezados a un español claro y descriptivo.
+    3.  **REGLA DE CÁLCULO DE VENTAS**: Para calcular cualquier métrica de ventas, gasto o total, SIEMPRE debes multiplicar la columna 'Quantity' por 'UnitPrice'. Es un requisito de negocio obligatorio.
+    4.  **REGLA DE FILTROS DE TEXTO**: Al filtrar por valores de texto (como un país, descripción, etc.), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Por ejemplo: `WHERE Country = 'France'`.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
