@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final con Inyección de Instrucciones)
+# ~/agente_sql/backend/main.py (Versión Final Definitiva y Robusta)
 
 import re
 import io
@@ -121,17 +121,46 @@ async def lifespan(app: FastAPI):
     engine = create_db_engine(ecommerce_data)
     if engine is None: raise RuntimeError("FATAL: No se pudo crear la base de datos.")
 
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
     
-    # Mantenemos el prefix para dar el contexto general, pero el refuerzo lo haremos en el input.
+    # --- PROMPT DE SISTEMA (PREFIX) REFORZADO Y DEFINITIVO ---
     prefix = """
-    Eres un sistema automatizado de generación de tablas SQL. Tu única función es convertir una solicitud de usuario en una tabla de datos en formato Markdown.
-    
-    REGLAS GENERALES:
-    1.  **REGLA DE CÁLCULO DE VENTAS**: Para calcular cualquier métrica de ventas, gasto o total, SIEMPRE debes multiplicar la columna 'Quantity' por 'UnitPrice'.
-    2.  **REGLA DE FILTROS DE TEXTO**: Al filtrar por valores de texto (como un país), SIEMPRE debes usar comillas simples. Ejemplo: `WHERE Country = 'Germany'`.
-    3.  **REGLA DE IDIOMA**: Debes comprender y procesar la solicitud en español.
+    Eres un bot de extracción de datos SQL altamente especializado. Tu ÚNICO propósito es recibir una pregunta en lenguaje natural y devolver el resultado de la consulta SQL correspondiente como una ÚNICA tabla en formato Markdown.
+
+    SIGUE ESTAS REGLAS INQUEBRANTABLES:
+
+    REGLA #1: FORMATO DE SALIDA
+    Tu respuesta final DEBE ser solo la tabla Markdown. NO incluyas NINGÚN texto introductorio, explicaciones, saludos o resúmenes. La tabla es tu única salida permitida.
+
+    REGLA #2: IDIOMA
+    La tabla resultante y, de manera CRÍTICA, todos sus encabezados de columna, DEBEN estar completamente en español. Traduce los nombres de las columnas de la base de datos a un español claro y legible. Ejemplo: 'Country' se convierte en 'País', 'SUM(Quantity * UnitPrice)' se convierte en 'Venta_Total'.
+
+    REGLA #3: CÁLCULOS
+    Para cualquier cálculo de "ventas", "gasto", "ingresos" o "total", SIEMPRE multiplica 'Quantity' por 'UnitPrice'.
+
+    A continuación se muestran ejemplos del comportamiento correcto:
+
+    <ejemplo>
+    Pregunta: "Top 3 países por ventas"
+    Respuesta:
+    | País          | Venta_Total |
+    |---------------|-------------|
+    | Reino Unido   | 8187806.24  |
+    | Países Bajos  | 284661.54   |
+    | EIRE          | 263276.82   |
+    </ejemplo>
+
+    <ejemplo>
+    Pregunta: "dame los datos del cliente con id 12350"
+    Respuesta:
+    | InvoiceNo | StockCode | Description                          | Quantity | InvoiceDate               | UnitPrice | CustomerID | Country       |
+    |-----------|-----------|--------------------------------------|----------|---------------------------|-----------|------------|---------------|
+    | 536378    | 21578     | ROUND SNACK BOXES SET OF 4 FRUITS    | 6        | 2010-12-01 09:37:00       | 2.95      | 12350      | Channel Islands |
+    | 536378    | 21992     | VINTAGE PAISLEY STATIONERY SET       | 12       | 2010-12-01 09:37:00       | 2.55      | 12350      | Channel Islands |
+    </ejemplo>
+
+    Ahora, procesa la siguiente pregunta del usuario. Recuerda, tu única respuesta debe ser la tabla en Markdown y en español.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
@@ -170,6 +199,7 @@ def read_root():
 
 @app.post("/query", response_model=QueryResponse)
 async def handle_query(request: QueryRequest):
+    # Se elimina la modificación del input. Se envía la pregunta original directamente.
     print(f"\n--- [NUEVA PETICIÓN]: {request.question} ---")
     query_master = app_state.get('query_master')
     if not query_master:
@@ -177,21 +207,9 @@ async def handle_query(request: QueryRequest):
     if not request.question:
         raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
     
-    # --- ¡ESTA ES LA SOLUCIÓN! ---
-    # Creamos un sufijo con la instrucción explícita y lo añadimos a la pregunta del usuario.
-    # Esto fuerza al agente a seguir la regla en el contexto inmediato de la pregunta actual.
-    instruction_suffix = (
-        "\n\n---\n"
-        "INSTRUCCIÓN DE FORMATO OBLIGATORIA: dame el resultado como tabla y responde en español"
-    )
-    
-    modified_question = f"{request.question}{instruction_suffix}"
-    
-    print(f"--- [INPUT MODIFICADO PARA EL AGENTE]: {modified_question} ---")
-
     try:
-        # Enviamos la pregunta modificada al agente
-        result = query_master.run_query(modified_question)
+        # Enviamos la pregunta original y sin modificar al agente.
+        result = query_master.run_query(request.question)
         return QueryResponse(**result)
     except Exception as e:
         import traceback
