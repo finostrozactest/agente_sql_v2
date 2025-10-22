@@ -27,34 +27,39 @@ def to_excel(df: pd.DataFrame) -> bytes:
         df.to_excel(writer, index=False, sheet_name='Resultados')
     return output.getvalue()
 
+# --- Sidebar y Gestión de Estado del Log ---
 with st.sidebar:
     st.header("Opciones")
     if st.button("🧹 Limpiar Historial de Chat"):
         st.session_state.clear()
         st.rerun()
     
-    # Se crea el contenedor para el log aquí, se llenará después
-    st.session_state.log_container = st.expander("Log de Pensamiento del Agente", expanded=False)
+    log_expander = st.expander("Log de Pensamiento del Agente", expanded=False)
 
+# Renderizar el log si existe en el estado de la sesión
+if "last_log" in st.session_state and st.session_state.last_log:
+    log_expander.code(st.session_state.last_log, language='text')
+
+# --- Lógica del Chat ---
 if "messages" not in st.session_state:
     st.session_state.messages = [{"role": "assistant", "content": "¡Hola! Soy tu asistente. La base de datos está lista. ¿Qué te gustaría saber?"}]
 
+# --- Bucle de Renderizado de Mensajes ---
 for i, msg in enumerate(st.session_state.messages):
     avatar = "🧑‍💻" if msg["role"] == "user" else "🤖"
     with st.chat_message(msg["role"], avatar=avatar):
-        # Para mensajes iniciales o de error que solo tienen 'content'
+        # Maneja mensajes de texto simples (bienvenida, errores, preguntas de usuario)
         if "content" in msg:
             st.markdown(msg["content"])
-
-        # Si el mensaje contiene una parte de texto separada, mostrarla
+        
+        # Maneja la respuesta estructurada del agente
         if "text_part" in msg and msg["text_part"]:
             st.markdown(msg["text_part"])
-
-        # Si el mensaje contiene datos de tabla, mostrarlos con dataframe
+        
         if "df_data" in msg and msg["df_data"]:
             df = pd.DataFrame(msg["df_data"])
             st.caption(f"Mostrando {len(df)} filas.")
-            st.dataframe(df, use_container_width=True)
+            st.dataframe(df, use_container_width=True, hide_index=True)
             st.download_button(
                 label="📥 Descargar Excel",
                 data=to_excel(df),
@@ -63,39 +68,39 @@ for i, msg in enumerate(st.session_state.messages):
                 key=f"download_{i}"
             )
 
+# --- Lógica de Procesamiento de Petición ---
 if prompt := st.chat_input("Ej: ¿Top 5 clientes en Francia por gasto total?"):
     st.session_state.messages.append({"role": "user", "content": prompt})
     st.rerun()
 
-if st.session_state.messages[-1]["role"] == "user":
+if st.session_state.messages and st.session_state.messages[-1]["role"] == "user":
     user_prompt = st.session_state.messages[-1]["content"]
     
     assistant_message = {"role": "assistant"}
     with st.chat_message("assistant", avatar="🤖"):
-        with st.spinner("Consultando la base de datos y validando..."):
+        with st.spinner("Analizando, consultando y validando..."):
             try:
                 payload = {"question": user_prompt}
                 response = requests.post(BACKEND_URL, json=payload, timeout=300)
                 response.raise_for_status()
                 data = response.json()
                 
-                # Guardar los datos en la estructura del mensaje para el historial
+                # Guardar datos en la sesión para el historial y el log
                 assistant_message["text_part"] = data.get("answer_text")
                 assistant_message["df_data"] = data.get("table_data")
-
-                # Actualizar el log y el veredicto en la barra lateral
-                with st.session_state.log_container:
-                    st.info(f"**Veredicto del Validador:**\n{data.get('verdict', 'No disponible.')}")
-                    st.code(data.get("reasoning", "No se recibió log."), language='text')
+                st.session_state.last_log = data.get("reasoning", "No se recibió log del agente.")
 
             except requests.exceptions.RequestException as e:
-                error_message = f"**Error de Conexión:** No se pudo comunicar con el servicio de backend.\n\n*Detalles: {e}*"
+                error_message = f"**Error de Conexión:** No se pudo comunicar con el backend.\n\n*Detalles: {e}*"
                 st.error(error_message)
                 assistant_message["content"] = error_message
+                st.session_state.last_log = str(e) # Mostrar error también en el log
             except Exception as e:
                 error_message = f"**Ocurrió un error inesperado:**\n\n*Detalles: {e}*"
                 st.error(error_message)
                 assistant_message["content"] = error_message
+                st.session_state.last_log = str(e)
     
     st.session_state.messages.append(assistant_message)
     st.rerun()
+
