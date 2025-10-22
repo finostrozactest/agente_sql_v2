@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final Definitiva)
+# ~/agente_sql/backend/main.py (Versión Final Verificada)
 
 import re
 import io
@@ -8,7 +8,7 @@ from contextlib import redirect_stdout, asynccontextmanager
 
 from sqlalchemy import create_engine
 from fastapi import FastAPI, HTTPException
-from pantic import BaseModel
+from pydantic import BaseModel  # <-- LÍNEA CORREGIDA
 
 from langchain_community.utilities import SQLDatabase
 from langchain_google_genai import ChatGoogleGenerativeAI
@@ -101,18 +101,14 @@ class QueryMaster:
 
         verdict = self.validator_chain.invoke({ "question": question, "sql_query": sql_query })
         
-        # Unir el log del analista con el veredicto para una historia completa
         full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
-
-        # Si no se pudo extraer una tabla, la respuesta completa es el texto.
-        # Si sí se extrajo, la respuesta de texto es solo la parte introductoria.
         final_text = analyst_answer_raw if not table_data else text_part
         
         return {
             "answer_text": final_text,
             "table_data": table_data,
             "reasoning": full_log,
-            "verdict": verdict # Se sigue enviando por si se necesita en el futuro
+            "verdict": verdict
         }
         
 @asynccontextmanager
@@ -132,14 +128,11 @@ async def lifespan(app: FastAPI):
 
     prefix = """
     Eres un asistente experto en análisis de datos que trabaja con una base de datos SQLite. Tu objetivo es responder a las preguntas del usuario generando y ejecutando consultas SQL.
-    
     REGLAS ESTRICTAS:
-    1.  CÁLCULO DE VENTAS: Para calcular el total de ventas o el gasto, SIEMPRE debes multiplicar 'Quantity' por 'UnitPrice'.
-    2.  FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país o un nombre), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Ejemplo: `WHERE Country = 'Brazil'`.
-    3.  FORMATO DE TABLA: Si la pregunta pide una lista de resultados, DEBES presentar el resultado final en formato de tabla Markdown.
-    
+    1. CÁLCULO DE VENTAS: Para calcular el total de ventas o el gasto, SIEMPRE debes multiplicar 'Quantity' por 'UnitPrice'.
+    2. FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país o un nombre), SIEMPRE debes usar comillas simples alrededor del valor en la cláusula WHERE. Ejemplo: `WHERE Country = 'Brazil'`.
+    3. FORMATO DE TABLA: Si la pregunta pide una lista de resultados, DEBES presentar el resultado final en formato de tabla Markdown.
     INSTRUCCIÓN FINAL CRÍTICA: Después de ejecutar la consulta y obtener los resultados, tu respuesta final DEBE ser únicamente la tabla en formato Markdown si la pregunta lo permite. NO añadas texto introductorio como "Aquí están los resultados...". Si la pregunta es simple (ej. un número), puedes dar una respuesta corta.
-    
     Tu respuesta final debe estar COMPLETAMENTE en español.
     """
     
@@ -172,13 +165,22 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# ... (El resto de las rutas de la API no cambia) ...
 @app.get("/")
 def read_root():
     return {"status": "El backend del Agente de Datos está funcionando."}
 
 @app.post("/query", response_model=QueryResponse)
 async def handle_query(request: QueryRequest):
-    # ... (El código de la ruta no cambia) ...
-
-
+    print(f"\n--- [NUEVA PETICIÓN]: {request.question} ---")
+    query_master = app_state.get('query_master')
+    if not query_master:
+        raise HTTPException(status_code=503, detail="El servicio no está listo.")
+    if not request.question:
+        raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
+    try:
+        result = query_master.run_query(request.question)
+        return QueryResponse(**result)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
