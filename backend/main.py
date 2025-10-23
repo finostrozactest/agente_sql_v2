@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final con Carga de Excel Local)
+# ~/agente_sql/backend/main.py (Versión Final Robusta con Schema Agnóstico)
 
 import re
 import io
@@ -26,7 +26,6 @@ class QueryResponse(BaseModel):
     reasoning: str
     verdict: str
 
-# --- CAMBIO PRINCIPAL (3/3): Cargar datos desde un archivo Excel local ---
 def load_and_prepare_data():
     local_file = "transaccional_dummy.xlsx"
     try:
@@ -38,20 +37,13 @@ def load_and_prepare_data():
             
         df = pd.read_excel(local_file, engine='openpyxl')
         
-        print("Datos cargados. Iniciando limpieza si es necesario...")
-        # Asumiendo que tu Excel ya tiene las columnas necesarias con los tipos de datos correctos.
-        # Si las columnas se llaman diferente, ajústalas aquí.
-        # Ejemplo de limpieza (ajústalo a tu archivo real):
-        if 'InvoiceDate' in df.columns:
-            df['InvoiceDate'] = pd.to_datetime(df['InvoiceDate'])
-        if 'CustomerID' in df.columns:
-            df.dropna(subset=['CustomerID'], inplace=True)
-            df['CustomerID'] = df['CustomerID'].astype(int)
-        
+        print("Datos cargados. Realizando limpieza automática de nombres de columna.")
+        # Limpieza de nombres de columna: reemplaza espacios y caracteres especiales por guiones bajos
+        df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-zA-Z0-9_]', '_', regex=True)
+
         print("Datos cargados y preparados exitosamente.")
         return df
     except FileNotFoundError as e:
-        # Este error es específico para que sepas que falta el archivo
         raise RuntimeError(e)
     except Exception as e:
         print(f"Error CRÍTICO durante la carga de datos del archivo local: {e}")
@@ -60,8 +52,7 @@ def load_and_prepare_data():
 def create_db_engine(df):
     try:
         engine = create_engine("sqlite:///:memory:")
-        # El nombre de la tabla ahora será el nombre del archivo sin extensión
-        table_name = "transaccional_dummy"
+        table_name = "transacciones" # Usamos un nombre de tabla genérico
         df.to_sql(table_name, engine, index=False, if_exists="replace")
         print(f"Base de datos en memoria creada y poblada con la tabla '{table_name}'.")
         return engine
@@ -99,11 +90,11 @@ class QueryMaster:
         self.analyst_agent = analyst_agent
         self.validator_chain = validator_chain
 
-    def run_query(self, question: str):
+    def run_query(self, original_question: str, modified_question: str):
         log_io = io.StringIO()
         try:
             with redirect_stdout(log_io):
-                analyst_response = self.analyst_agent.invoke({"input": question})
+                analyst_response = self.analyst_agent.invoke({"input": modified_question})
         except Exception as e:
             print(f"Error en el agente analista: {e}")
             raise HTTPException(status_code=500, detail=f"El agente analista falló: {e}")
@@ -115,8 +106,11 @@ class QueryMaster:
         clean_log = ansi_escape.sub('', log_io.getvalue())
         sql_matches = re.findall(r"Action Input: (SELECT .*?)(?:\n|$)", clean_log, re.DOTALL)
         sql_query = sql_matches[-1].strip() if sql_matches else "No se ejecutó una consulta SQL directa."
-        verdict = self.validator_chain.invoke({ "question": question, "sql_query": sql_query })
-        full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
+        
+        # El validador usa la pregunta original, no la modificada.
+        verdict = self.validator_chain.invoke({ "question": original_question, "sql_query": sql_query })
+        
+        full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {original_question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
         return { "answer_text": final_text, "table_data": table_data, "reasoning": full_log, "verdict": verdict }
 
 @asynccontextmanager
@@ -130,21 +124,27 @@ async def lifespan(app: FastAPI):
     if engine is None: raise RuntimeError("FATAL: No se pudo crear la base de datos.")
     llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
+    
+    # --- PREFIX MODIFICADO: Ahora es genérico y no asume nombres de columnas ---
     prefix = """
     Eres un asistente experto en análisis de datos que trabaja con una base de datos SQLite. Tu objetivo es responder a las preguntas del usuario generando y ejecutando consultas SQL.
+
     REGLAS DE NEGOCIO OBLIGATORIAS:
-    1. CÁLCULO DE VENTAS: Para calcular el total de ventas o el gasto, SIEMPRE debes multiplicar 'Quantity' por 'UnitPrice'.
-    2. FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país), SIEMPRE debes usar comillas simples. Ejemplo: `WHERE Country = 'France'`.
+    1. CÁLCULO DE VENTAS: Para calcular cualquier valor monetario total (como ventas, contribucion, margen, etc.), debes inferir cuáles son las columnas de venta y contribucion de la tabla y dividirlas.
+    2. FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país), SIEMPRE debes usar comillas simples. Ejemplo: `WHERE pais = 'Francia'`.
+    3. CLACOM: se refiere al universo de categorias van desde mas a menos, las columnas respectivas son: departamento, familia, subfamilia, grupo, conjunto, sku.
     """
+    
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     analyst_agent_executor = create_sql_agent( llm=llm, toolkit=toolkit, verbose=True, prefix=prefix, handle_parsing_errors="Tuve un problema para interpretar la consulta. Por favor, reformula tu pregunta en español.", agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
+
+    # --- VALIDATOR MODIFICADO: También es genérico ---
     validator_template = """
-    Tu única tarea es actuar como un validador de consultas SQL. Basado en la pregunta del usuario y la consulta SQL generada, proporciona un veredicto en UNA SOLA LÍNEA y en español. Obliga al analista a responder con formato tabla Markdown y en español.
-    Regla de negocio: Si la pregunta implica calcular el margen, la consulta DEBE dividir 'contribucion' por 'venta'.
+    Tu única tarea es actuar como un validador de consultas SQL. Basado en la pregunta del usuario y la consulta SQL generada, proporciona un veredicto en UNA SOLA LÍNEA y en español. Obliga al analista a responder con una tabla markdown y en español.
+    Regla de negocio: Si la pregunta implica calcular un total de ventas o gasto, la consulta DEBE incluir una multiplicación entre una columna de cantidad y una de precio.
     Pregunta: "{question}"
     Consulta: "{sql_query}"
     Evalúa si la consulta responde correctamente a la pregunta y cumple la regla de negocio.
-    Si te preguntan por CLACOM, se refiere aluniverso de categorias, que son las columnas departamento, familia, subfamilia, grupo, conjunto
     Responde ÚNICAMENTE con "APROBADO" si es correcta, o "RECHAZADO" con una explicación técnica muy breve (máximo 10 palabras).
     Veredicto:
     """
@@ -169,12 +169,16 @@ async def handle_query(request: QueryRequest):
         raise HTTPException(status_code=503, detail="El servicio no está listo.")
     if not request.question:
         raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
+    
+    original_question = request.question
     fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español. La pregunta es:"
-    modified_question = f"{fixed_instruction} {request.question}"
-    print(f"\n--- [INPUT ORIGINAL]: {request.question} ---")
+    modified_question = f"{fixed_instruction} {original_question}"
+    
+    print(f"\n--- [INPUT ORIGINAL]: {original_question} ---")
     print(f"--- [INPUT MODIFICADO PARA EL AGENTE]: {modified_question} ---")
     try:
-        result = query_master.run_query(modified_question)
+        # Pasamos ambas versiones de la pregunta al método run_query
+        result = query_master.run_query(original_question=original_question, modified_question=modified_question)
         return QueryResponse(**result)
     except Exception as e:
         import traceback
