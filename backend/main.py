@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final Definitiva - Con Manejo de Encoding)
+# ~/agente_sql/backend/main.py (Versión Final Definitiva - Anti-errores de CSV)
 
 import re
 import io
@@ -32,24 +32,33 @@ def load_and_prepare_data():
         print(f"Cargando datos desde el archivo local: {local_file}")
         if not os.path.exists(local_file):
             raise FileNotFoundError(f"Error CRÍTICO: No se encontró el archivo '{local_file}'.")
-            
-        # --- ¡ESTA ES LA SOLUCIÓN! ---
-        # Intentamos leer con la codificación estándar UTF-8.
-        # Si falla (UnicodeDecodeError), lo intentamos con latin-1, que es común en archivos de Excel/Windows.
+
+        # --- ¡SOLUCIÓN DEFINITIVA PARA ERRORES DE PARSEO DE CSV! ---
+        # on_bad_lines='skip': Esta es la clave. Ignora cualquier línea que tenga un número incorrecto de columnas.
+        # engine='python': Usamos el motor de Python que es más flexible.
+        # sep=None: Dejamos que autodetecte el separador (coma o punto y coma).
+        # El bloque try/except maneja la codificación de caracteres.
         try:
-            df = pd.read_csv(local_file, sep=None, engine='python')
+            df = pd.read_csv(local_file, sep=None, engine='python', on_bad_lines='skip')
         except UnicodeDecodeError:
             print("Fallo al leer con UTF-8. Reintentando con codificación 'latin-1'.")
-            df = pd.read_csv(local_file, sep=None, engine='python', encoding='latin-1')
+            df = pd.read_csv(local_file, sep=None, engine='python', on_bad_lines='skip', encoding='latin-1')
+        except Exception as e:
+            # Captura cualquier otro error de parseo que no sea de codificación
+            print(f"Ocurrió un error de parseo inesperado: {e}")
+            raise
 
-        print("Datos cargados. Limpiando nombres de columnas para compatibilidad con SQL.")
+        print("Datos cargados exitosamente (algunas filas podrían haberse omitido si estaban malformadas).")
+        print(f"DataFrame cargado con la forma: {df.shape}")
+        
+        print("Limpiando nombres de columnas para compatibilidad con SQL.")
         df.columns = [str(c) for c in df.columns]
         df.columns = df.columns.str.strip().str.lower().str.replace(r'\s+', '_', regex=True).str.replace(r'[^a-zA-Z0-9_]', '', regex=True)
 
         print("Datos preparados. Nombres de columnas finales:", df.columns.to_list())
         return df
     except Exception as e:
-        print(f"Error CRÍTICO durante la carga de datos del CSV: {e}")
+        print(f"Error CRÍTICO durante la carga o preparación de datos: {e}")
         raise RuntimeError(f"Fallo al cargar o preparar los datos: {e}")
 
 def create_db_engine(df):
@@ -75,7 +84,7 @@ def parse_response_to_df(response_text: str):
         df = pd.read_csv(io.StringIO(csv_like), skipinitialspace=True)
         df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
         return text_part, df.to_dict(orient='records')
-    except Exception as e:
+    except Exception:
         return response_text, []
 
 app_state = {}
@@ -142,10 +151,8 @@ def read_root():
 async def handle_query(request: QueryRequest):
     query_master = app_state.get('query_master')
     validator_chain = app_state.get('validator_chain')
-    if not query_master or not validator_chain:
-        raise HTTPException(status_code=503, detail="El servicio no está listo.")
-    if not request.question:
-        raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
+    if not query_master or not validator_chain: raise HTTPException(status_code=503, detail="El servicio no está listo.")
+    if not request.question: raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
     original_question = request.question
     fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español, incluyendo los encabezados de la tabla. La pregunta es:"
     modified_question = f"{fixed_instruction} {original_question}"
@@ -162,6 +169,4 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
-
-
 
