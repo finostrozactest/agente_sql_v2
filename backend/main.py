@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final Definitiva - Usando CSV)
+# ~/agente_sql/backend/main.py (Versión Final Definitiva - Con Manejo de Encoding)
 
 import re
 import io
@@ -26,17 +26,22 @@ class QueryResponse(BaseModel):
     reasoning: str
     verdict: str
 
-# --- CAMBIO CLAVE: Leer desde un archivo CSV ---
 def load_and_prepare_data():
-    local_file = "transaccional_dummy.csv" # Nombre del archivo cambiado a .csv
+    local_file = "transaccional_dummy.csv"
     try:
         print(f"Cargando datos desde el archivo local: {local_file}")
         if not os.path.exists(local_file):
             raise FileNotFoundError(f"Error CRÍTICO: No se encontró el archivo '{local_file}'.")
             
-        # Usamos pd.read_csv, que es mucho más rápido y robusto.
-        df = pd.read_csv(local_file)
-        
+        # --- ¡ESTA ES LA SOLUCIÓN! ---
+        # Intentamos leer con la codificación estándar UTF-8.
+        # Si falla (UnicodeDecodeError), lo intentamos con latin-1, que es común en archivos de Excel/Windows.
+        try:
+            df = pd.read_csv(local_file, sep=None, engine='python')
+        except UnicodeDecodeError:
+            print("Fallo al leer con UTF-8. Reintentando con codificación 'latin-1'.")
+            df = pd.read_csv(local_file, sep=None, engine='python', encoding='latin-1')
+
         print("Datos cargados. Limpiando nombres de columnas para compatibilidad con SQL.")
         df.columns = [str(c) for c in df.columns]
         df.columns = df.columns.str.strip().str.lower().str.replace(r'\s+', '_', regex=True).str.replace(r'[^a-zA-Z0-9_]', '', regex=True)
@@ -55,13 +60,11 @@ def create_db_engine(df):
         print(f"Base de datos en memoria creada con la tabla '{table_name}'.")
         return engine
     except Exception as e:
-        print(f"Error al crear la base de datos en memoria: {e}")
         raise RuntimeError(f"Fallo al crear el motor de base de datos: {e}")
 
 def parse_response_to_df(response_text: str):
     table_regex = re.compile(r"(\|.*\|(?:\n\|.*\|)+)")
     table_match = table_regex.search(response_text)
-    
     if not table_match: return response_text, []
     table_str = table_match.group(0)
     text_part = response_text.replace(table_str, "").strip()
@@ -73,7 +76,6 @@ def parse_response_to_df(response_text: str):
         df = df.apply(lambda x: x.str.strip() if x.dtype == "object" else x)
         return text_part, df.to_dict(orient='records')
     except Exception as e:
-        print(f"Error al parsear tabla markdown: {e}")
         return response_text, []
 
 app_state = {}
@@ -81,7 +83,6 @@ app_state = {}
 class QueryMaster:
     def __init__(self, analyst_agent):
         self.analyst_agent = analyst_agent
-
     def run_query(self, question: str):
         log_io = io.StringIO()
         try:
@@ -103,23 +104,18 @@ async def lifespan(app: FastAPI):
     print("Iniciando el servidor...")
     if not os.getenv("GOOGLE_API_KEY"):
         raise ValueError("FATAL: La variable de entorno GOOGLE_API_KEY no se encontró.")
-    
     data_df = load_and_prepare_data()
     engine = create_db_engine(data_df)
-    
-    llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0)
     db = SQLDatabase(engine=engine)
-    
     prefix = """
     Eres un asistente experto en análisis de datos. Tu objetivo es responder preguntas generando y ejecutando consultas SQL.
     REGLAS DE NEGOCIO:
     1. CÁLCULO DE VALORES: Para calcular totales monetarios, infiere las columnas de cantidad y precio y multiplícalas.
     2. FILTROS DE TEXTO: Usa siempre comillas simples para valores de texto en cláusulas WHERE.
     """
-    
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     analyst_agent_executor = create_sql_agent(llm=llm, toolkit=toolkit, verbose=True, prefix=prefix, handle_parsing_errors="Tuve un problema para interpretar la consulta. Por favor, reformula tu pregunta.", agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
-
     validator_template = """
     Valida la siguiente consulta SQL basada en la pregunta del usuario. Responde en español y en una línea.
     Regla: Si la pregunta pide un total de ventas/gasto, la consulta DEBE incluir una multiplicación.
@@ -129,7 +125,6 @@ async def lifespan(app: FastAPI):
     """
     validator_prompt = PromptTemplate(template=validator_template, input_variables=["question", "sql_query"])
     validator_chain = validator_prompt | llm | StrOutputParser()
-    
     app_state['query_master'] = QueryMaster(analyst_agent_executor)
     app_state['validator_chain'] = validator_chain
     print("¡El servidor está listo para recibir peticiones!")
@@ -151,21 +146,17 @@ async def handle_query(request: QueryRequest):
         raise HTTPException(status_code=503, detail="El servicio no está listo.")
     if not request.question:
         raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
-    
     original_question = request.question
     fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español, incluyendo los encabezados de la tabla. La pregunta es:"
     modified_question = f"{fixed_instruction} {original_question}"
-    
     print(f"\n--- [INPUT ORIGINAL]: {original_question} ---")
     print(f"--- [INPUT MODIFICADO PARA EL AGENTE]: {modified_question} ---")
-    
     try:
         run_result = query_master.run_query(modified_question)
         sql_query = run_result["sql_query"]
         verdict = validator_chain.invoke({"question": original_question, "sql_query": sql_query})
         full_log = f"{run_result['reasoning']}\n--- Validador ---\nPregunta: {original_question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
         final_text = "" if run_result["table_data"] else run_result["answer_text"]
-
         return QueryResponse(answer_text=final_text, table_data=run_result["table_data"], reasoning=full_log, verdict=verdict)
     except Exception as e:
         import traceback
