@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final, Robusta y Simplificada)
+# ~/agente_sql/backend/main.py (Versión Final Definitiva - Usando CSV)
 
 import re
 import io
@@ -26,14 +26,16 @@ class QueryResponse(BaseModel):
     reasoning: str
     verdict: str
 
+# --- CAMBIO CLAVE: Leer desde un archivo CSV ---
 def load_and_prepare_data():
-    local_file = "transaccional_dummy.xlsx"
+    local_file = "transaccional_dummy.csv" # Nombre del archivo cambiado a .csv
     try:
         print(f"Cargando datos desde el archivo local: {local_file}")
         if not os.path.exists(local_file):
             raise FileNotFoundError(f"Error CRÍTICO: No se encontró el archivo '{local_file}'.")
             
-        df = pd.read_excel(local_file, engine='openpyxl')
+        # Usamos pd.read_csv, que es mucho más rápido y robusto.
+        df = pd.read_csv(local_file)
         
         print("Datos cargados. Limpiando nombres de columnas para compatibilidad con SQL.")
         df.columns = [str(c) for c in df.columns]
@@ -42,7 +44,7 @@ def load_and_prepare_data():
         print("Datos preparados. Nombres de columnas finales:", df.columns.to_list())
         return df
     except Exception as e:
-        print(f"Error CRÍTICO durante la carga de datos: {e}")
+        print(f"Error CRÍTICO durante la carga de datos del CSV: {e}")
         raise RuntimeError(f"Fallo al cargar o preparar los datos: {e}")
 
 def create_db_engine(df):
@@ -60,8 +62,7 @@ def parse_response_to_df(response_text: str):
     table_regex = re.compile(r"(\|.*\|(?:\n\|.*\|)+)")
     table_match = table_regex.search(response_text)
     
-    if not table_match:
-        return response_text, []
+    if not table_match: return response_text, []
     table_str = table_match.group(0)
     text_part = response_text.replace(table_str, "").strip()
     try:
@@ -77,7 +78,6 @@ def parse_response_to_df(response_text: str):
 
 app_state = {}
 
-# --- CLASE SIMPLIFICADA ---
 class QueryMaster:
     def __init__(self, analyst_agent):
         self.analyst_agent = analyst_agent
@@ -90,23 +90,13 @@ class QueryMaster:
         except Exception as e:
             print(f"Error en el agente analista: {e}")
             raise
-
         reasoning_log = log_io.getvalue()
         analyst_answer_raw = analyst_response.get("output", "No se pudo generar una respuesta.")
         text_part, table_data = parse_response_to_df(analyst_answer_raw)
-        
-        ansi_escape = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-9;?]*[ -/]*[@-~])')
-        clean_log = ansi_escape.sub('', reasoning_log)
-        
+        clean_log = re.sub(r'\x1B(?:[@-Z\\-_]|\[[0-9;?]*[ -/]*[@-~])', '', reasoning_log)
         sql_matches = re.findall(r"Action Input: (SELECT .*?)(?:\n|$)", clean_log, re.DOTALL)
         sql_query = sql_matches[-1].strip() if sql_matches else "No se ejecutó una consulta SQL."
-        
-        return {
-            "answer_text": text_part,
-            "table_data": table_data,
-            "reasoning": clean_log,
-            "sql_query": sql_query
-        }
+        return { "answer_text": text_part, "table_data": table_data, "reasoning": clean_log, "sql_query": sql_query }
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -121,23 +111,21 @@ async def lifespan(app: FastAPI):
     db = SQLDatabase(engine=engine)
     
     prefix = """
-    Eres un asistente experto en análisis de datos. Tu objetivo es responder preguntas generando y ejecutando consultas SQL sobre la base de datos proporcionada.
+    Eres un asistente experto en análisis de datos. Tu objetivo es responder preguntas generando y ejecutando consultas SQL.
     REGLAS DE NEGOCIO:
-    1. CÁLCULO DE VALORES: Para calcular totales monetarios (ventas, gastos, etc.), infiere las columnas de cantidad y precio de la tabla y multiplícalas.
-    2. FILTROS DE TEXTO: Usa siempre comillas simples para valores de texto en las cláusulas WHERE.
+    1. CÁLCULO DE VALORES: Para calcular totales monetarios, infiere las columnas de cantidad y precio y multiplícalas.
+    2. FILTROS DE TEXTO: Usa siempre comillas simples para valores de texto en cláusulas WHERE.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     analyst_agent_executor = create_sql_agent(llm=llm, toolkit=toolkit, verbose=True, prefix=prefix, handle_parsing_errors="Tuve un problema para interpretar la consulta. Por favor, reformula tu pregunta.", agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
 
     validator_template = """
-    Tu única tarea es validar una consulta SQL. Basado en la pregunta y la consulta, da un veredicto en UNA LÍNEA y en español.
+    Valida la siguiente consulta SQL basada en la pregunta del usuario. Responde en español y en una línea.
     Regla: Si la pregunta pide un total de ventas/gasto, la consulta DEBE incluir una multiplicación.
     Pregunta: "{question}"
     Consulta: "{sql_query}"
-    Evalúa si la consulta cumple la regla y responde a la pregunta.
-    Responde SÓLO con "APROBADO" si es correcta, o "RECHAZADO" con una explicación muy breve (máx 10 palabras).
-    Veredicto:
+    Veredicto (APROBADO o RECHAZADO con breve explicación):
     """
     validator_prompt = PromptTemplate(template=validator_template, input_variables=["question", "sql_query"])
     validator_chain = validator_prompt | llm | StrOutputParser()
@@ -173,21 +161,12 @@ async def handle_query(request: QueryRequest):
     
     try:
         run_result = query_master.run_query(modified_question)
-        
         sql_query = run_result["sql_query"]
-        
         verdict = validator_chain.invoke({"question": original_question, "sql_query": sql_query})
-        
-        full_log = f"{run_result['reasoning']}\n--- Interacción con el Validador ---\nPregunta Original: {original_question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
-        
+        full_log = f"{run_result['reasoning']}\n--- Validador ---\nPregunta: {original_question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
         final_text = "" if run_result["table_data"] else run_result["answer_text"]
 
-        return QueryResponse(
-            answer_text=final_text,
-            table_data=run_result["table_data"],
-            reasoning=full_log,
-            verdict=verdict
-        )
+        return QueryResponse(answer_text=final_text, table_data=run_result["table_data"], reasoning=full_log, verdict=verdict)
     except Exception as e:
         import traceback
         traceback.print_exc()
