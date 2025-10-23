@@ -1,4 +1,4 @@
-# ~/agente_sql/frontend/app.py (Versión con Mejoras Visuales)
+# ~/agente_sql/frontend/app.py (Versión Final con Color de Botón Corregido)
 
 import streamlit as st
 import pandas as pd
@@ -10,7 +10,7 @@ st.set_page_config(page_title="Autoconsulta IA", page_icon="🤖", layout="wide"
 
 AGENT_AVATAR = "https://images.seeklogo.com/logo-png/49/2/sodimac-warehouse-logo-png_seeklogo-494670.png"
 
-# --- CAMBIO PRINCIPAL (1/3): Añadir CSS para el color del botón de descarga ---
+# --- CAMBIO FINAL: Selector de CSS más específico para el botón de descarga ---
 st.markdown("""
 <style>
     /* Estilos generales del mensaje de chat */
@@ -27,18 +27,24 @@ st.markdown("""
         word-wrap: break-word !important; 
     }
 
-    /* Estilo específico para el botón de descarga */
-    .stDownloadButton button {
-        background-color: #f0f2f6; /* Gris claro, similar al input */
-        color: #31333F; /* Color de texto oscuro para contraste */
-        border: 1px solid #f0f2f6;
+    /* 
+    Selector de CSS corregido y robusto.
+    Apunta directamente al botón dentro del contenedor del botón de descarga.
+    */
+    [data-testid="stDownloadButton"] > button {
+        background-color: #F0F2F6; /* Color gris claro de la barra lateral de Streamlit */
+        color: #31333F;           /* Color de texto oscuro para buen contraste */
+        border: 1px solid #DCDCDC; /* Borde sutil para definir el botón */
         border-radius: 0.5rem;
         padding: 0.4rem 0.8rem;
+        font-weight: 600;
     }
-    .stDownloadButton button:hover {
-        background-color: #e6e8eb; /* Un gris un poco más oscuro al pasar el mouse */
-        border: 1px solid #e6e8eb;
+
+    /* Efecto al pasar el mouse para dar feedback al usuario */
+    [data-testid="stDownloadButton"] > button:hover {
+        background-color: #E6E8EB;
         color: #31333F;
+        border-color: #CFCFCF;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -81,7 +87,6 @@ for i, msg in enumerate(st.session_state.messages):
         if "table_data" in msg and msg["table_data"]:
             df = pd.DataFrame(msg["table_data"])
             
-            # --- CAMBIO PRINCIPAL (2/3): Mostrar estructura de la tabla (columnas x filas) ---
             rows, cols = df.shape
             st.caption(f"{cols} columnas x {rows} filas")
             
@@ -128,4 +133,5 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     
     st.session_state.messages.append(assistant_message)
     st.rerun()
+
 
