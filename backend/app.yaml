@@ -3,9 +3,14 @@ service: backend
 runtime: custom
 env: flex
 
-# El entrypoint anula el CMD del Dockerfile y es la forma recomendada
-# para App Engine. Usará el puerto 8080 internamente.
-entrypoint: uvicorn main:app --host 0.0.0.0 --port 8080
+# Esta sección le dice a App Engine que obtenga el secreto llamado 'gemini-api-key'
+# y lo inyecte en el entorno de ejecución como la variable 'GOOGLE_API_KEY'.
+secret_env_variables:
+  GOOGLE_API_KEY:
+    secret: "gemini-api-key"
+    version: "latest" # Siempre usará la última versión del secreto
+
+entrypoint: uvicorn main.app --host 0.0.0.0 --port 8080
 
 automatic_scaling:
   min_num_instances: 0
