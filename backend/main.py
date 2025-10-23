@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final Robusta con Schema Agnóstico)
+# ~/agente_sql/backend/main.py (Versión Final Robusta y Simplificada)
 
 import re
 import io
@@ -38,10 +38,11 @@ def load_and_prepare_data():
         df = pd.read_excel(local_file, engine='openpyxl')
         
         print("Datos cargados. Realizando limpieza automática de nombres de columna.")
-        # Limpieza de nombres de columna: reemplaza espacios y caracteres especiales por guiones bajos
-        df.columns = df.columns.str.strip().str.lower().str.replace(r'[^a-zA-Z0-9_]', '_', regex=True)
+        # Limpieza robusta de nombres de columna para compatibilidad con SQL
+        df.columns = [str(c) for c in df.columns] # Asegura que todos los nombres sean strings
+        df.columns = df.columns.str.strip().str.lower().str.replace(r'\s+', '_', regex=True).str.replace(r'[^a-zA-Z0-9_]', '', regex=True)
 
-        print("Datos cargados y preparados exitosamente.")
+        print("Datos preparados exitosamente. Nombres de columnas finales:", df.columns.to_list())
         return df
     except FileNotFoundError as e:
         raise RuntimeError(e)
@@ -52,7 +53,7 @@ def load_and_prepare_data():
 def create_db_engine(df):
     try:
         engine = create_engine("sqlite:///:memory:")
-        table_name = "transacciones" # Usamos un nombre de tabla genérico
+        table_name = "transacciones" # Usamos un nombre de tabla genérico y predecible
         df.to_sql(table_name, engine, index=False, if_exists="replace")
         print(f"Base de datos en memoria creada y poblada con la tabla '{table_name}'.")
         return engine
@@ -90,7 +91,8 @@ class QueryMaster:
         self.analyst_agent = analyst_agent
         self.validator_chain = validator_chain
 
-    def run_query(self, original_question: str, modified_question: str):
+    # --- MÉTODO SIMPLIFICADO: Acepta solo un argumento ---
+    def run_query(self, modified_question: str, original_question: str):
         log_io = io.StringIO()
         try:
             with redirect_stdout(log_io):
@@ -107,10 +109,9 @@ class QueryMaster:
         sql_matches = re.findall(r"Action Input: (SELECT .*?)(?:\n|$)", clean_log, re.DOTALL)
         sql_query = sql_matches[-1].strip() if sql_matches else "No se ejecutó una consulta SQL directa."
         
-        # El validador usa la pregunta original, no la modificada.
         verdict = self.validator_chain.invoke({ "question": original_question, "sql_query": sql_query })
         
-        full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta: {original_question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
+        full_log = f"{clean_log}\n--- Interacción con el Validador ---\nPregunta Original: {original_question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
         return { "answer_text": final_text, "table_data": table_data, "reasoning": full_log, "verdict": verdict }
 
 @asynccontextmanager
@@ -118,29 +119,29 @@ async def lifespan(app: FastAPI):
     print("Iniciando el servidor...")
     if not os.getenv("GOOGLE_API_KEY"):
         raise ValueError("FATAL: La variable de entorno GOOGLE_API_KEY no se encontró.")
+    
     ecommerce_data = load_and_prepare_data()
     if ecommerce_data is None: raise RuntimeError("FATAL: No se pudieron cargar los datos.")
+    
     engine = create_db_engine(ecommerce_data)
     if engine is None: raise RuntimeError("FATAL: No se pudo crear la base de datos.")
+    
     llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
     
-    # --- PREFIX MODIFICADO: Ahora es genérico y no asume nombres de columnas ---
     prefix = """
     Eres un asistente experto en análisis de datos que trabaja con una base de datos SQLite. Tu objetivo es responder a las preguntas del usuario generando y ejecutando consultas SQL.
 
     REGLAS DE NEGOCIO OBLIGATORIAS:
-    1. CÁLCULO DE VENTAS: Para calcular cualquier valor monetario total (como ventas, contribucion, margen, etc.), debes inferir cuáles son las columnas de venta y contribucion de la tabla y dividirlas.
+    1. CÁLCULO DE VENTAS: Para calcular cualquier valor monetario total (como ventas, gasto, etc.), debes inferir cuáles son las columnas de cantidad y precio unitario de la tabla y multiplicarlas.
     2. FILTROS DE TEXTO: Cuando filtres por un valor de texto (ej. un país), SIEMPRE debes usar comillas simples. Ejemplo: `WHERE pais = 'Francia'`.
-    3. CLACOM: se refiere al universo de categorias van desde mas a menos, las columnas respectivas son: departamento, familia, subfamilia, grupo, conjunto, sku.
     """
     
     toolkit = SQLDatabaseToolkit(db=db, llm=llm)
     analyst_agent_executor = create_sql_agent( llm=llm, toolkit=toolkit, verbose=True, prefix=prefix, handle_parsing_errors="Tuve un problema para interpretar la consulta. Por favor, reformula tu pregunta en español.", agent_type=AgentType.ZERO_SHOT_REACT_DESCRIPTION)
 
-    # --- VALIDATOR MODIFICADO: También es genérico ---
     validator_template = """
-    Tu única tarea es actuar como un validador de consultas SQL. Basado en la pregunta del usuario y la consulta SQL generada, proporciona un veredicto en UNA SOLA LÍNEA y en español. Obliga al analista a responder con una tabla markdown y en español.
+    Tu única tarea es actuar como un validador de consultas SQL. Basado en la pregunta del usuario y la consulta SQL generada, proporciona un veredicto en UNA SOLA LÍNEA y en español.
     Regla de negocio: Si la pregunta implica calcular un total de ventas o gasto, la consulta DEBE incluir una multiplicación entre una columna de cantidad y una de precio.
     Pregunta: "{question}"
     Consulta: "{sql_query}"
@@ -171,19 +172,16 @@ async def handle_query(request: QueryRequest):
         raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
     
     original_question = request.question
-    fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español. La pregunta es:"
+    fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español, incluyendo los encabezados de la tabla. La pregunta es:"
     modified_question = f"{fixed_instruction} {original_question}"
     
     print(f"\n--- [INPUT ORIGINAL]: {original_question} ---")
     print(f"--- [INPUT MODIFICADO PARA EL AGENTE]: {modified_question} ---")
     try:
-        # Pasamos ambas versiones de la pregunta al método run_query
-        result = query_master.run_query(original_question=original_question, modified_question=modified_question)
+        result = query_master.run_query(modified_question=modified_question, original_question=original_question)
         return QueryResponse(**result)
     except Exception as e:
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
-
-
 
