@@ -8,12 +8,24 @@ env: flex
 secret_env_variables:
   GOOGLE_API_KEY:
     secret: "gemini-api-key"
-    version: "latest" # Siempre usará la última versión del secreto
+    version: "latest"
 
-entrypoint: uvicorn main.app --host 0.0.0.0 --port 8080
+entrypoint: uvicorn main:app --host 0.0.0.0 --port 8080
 
+# --- CONFIGURACIÓN DE ESCALADO Y COSTOS ---
 automatic_scaling:
+  # La clave para el costo CERO cuando no hay tráfico.
   min_num_instances: 0
+  
+  # Límite máximo de seguridad. Una sola instancia es suficiente para el backend
+  # con pocos usuarios concurrentes.
   max_num_instances: 1
+  
   cpu_utilization:
-    target_utilization: 0.65
+    target_utilization: 0.75 # Inicia una nueva instancia si la CPU supera el 75%
+
+# Asignamos recursos mínimos para mantener bajos los costos de la instancia.
+resources:
+  cpu: 1
+  memory_gb: 1
+  disk_size_gb: 10
