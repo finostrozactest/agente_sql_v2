@@ -128,3 +128,4 @@ if st.session_state.messages and st.session_state.messages[-1]["role"] == "user"
     
     st.session_state.messages.append(assistant_message)
     st.rerun()
+
