@@ -1,0 +1,15 @@
+# cloudbuild.yaml
+steps:
+- id: "Desplegar Backend"
+  name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  entrypoint: "gcloud"
+  args: ["app", "deploy", "backend/app.yaml", "--project=$PROJECT_ID", "--quiet"]
+
+- id: "Desplegar Frontend"
+  name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+  entrypoint: "gcloud"
+  args: ["app", "deploy", "frontend/app.yaml", "--project=$PROJECT_ID", "--quiet"]
+  waitFor: ["Desplegar Backend"]
+
+options:
+  logging: CLOUD_LOGGING_ONLY
