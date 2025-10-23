@@ -106,7 +106,7 @@ async def lifespan(app: FastAPI):
         raise ValueError("FATAL: La variable de entorno GOOGLE_API_KEY no se encontró.")
     data_df = load_and_prepare_data()
     engine = create_db_engine(data_df)
-    llm = ChatGoogleGenerativeAI(model="gemini-1.5-pro-latest", temperature=0)
+    llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
     prefix = """
     Eres un asistente experto en análisis de datos. Tu objetivo es responder preguntas generando y ejecutando consultas SQL.
@@ -162,5 +162,6 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
 
 
