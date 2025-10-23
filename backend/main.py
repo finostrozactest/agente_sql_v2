@@ -36,7 +36,8 @@ def load_and_prepare_data():
             print(error_msg)
             raise FileNotFoundError(error_msg)
             
-        df = pd.read_excel(local_file)
+        df = pd.read_excel(local_file, engine='openpyxl')
+        
         print("Datos cargados. Iniciando limpieza si es necesario...")
         # Asumiendo que tu Excel ya tiene las columnas necesarias con los tipos de datos correctos.
         # Si las columnas se llaman diferente, ajústalas aquí.
@@ -179,5 +180,6 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
 
 
