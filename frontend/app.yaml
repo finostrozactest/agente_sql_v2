@@ -1,0 +1,22 @@
+# Este archivo debe estar en: /frontend/app.yaml
+service: default
+runtime: custom
+env: flex
+
+# Variable de entorno con tus datos específicos.
+env_variables:
+  BACKEND_URL: "https://backend-dot-project-agentes.sa-west1.r.appspot.com/query"
+
+entrypoint: streamlit run app.py --server.port 8080 --server.enableCORS false --server.enableXsrfProtection false
+
+# --- CONFIGURACIÓN DE ESCALADO OPTIMIZADA PARA COSTOS BAJOS ---
+automatic_scaling:
+  min_num_instances: 0
+  max_num_instances: 2
+  cpu_utilization:
+    target_utilization: 0.75
+
+resources:
+  cpu: 1
+  memory_gb: 1
+  disk_size_gb: 10
