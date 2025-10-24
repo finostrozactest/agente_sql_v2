@@ -1,0 +1,23 @@
+service: default
+runtime: custom
+env: flex
+
+env_variables:
+  BACKEND_URL: "https://backend-dot-project-agentes.ue.r.appspot.com/query"
+
+entrypoint: streamlit run app.py --server.port 8080 --server.enableCORS false --server.enableXsrfProtection false
+
+automatic_scaling:
+  min_num_instances: 1
+  max_num_instances: 2
+  cpu_utilization:
+    target_utilization: 0.75
+
+# --- CONFIGURACIÓN DE CHEQUEO DE SALUD ULTRA-TOLERANTE ---
+readiness_check:
+  path: "/_stcore/health"
+  check_interval_sec: 60    # Comprueba cada minuto
+  timeout_sec: 10
+  failure_threshold: 30     # Permite 30 fallos seguidos (30 minutos)
+  success_threshold: 1
+  app_start_timeout_sec: 3600 # Permite hasta 1 hora para arrancar
