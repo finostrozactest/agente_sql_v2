@@ -1,4 +1,6 @@
-# ~/agente_sql/backend/main.py (Versión Definitiva para Standard)
+
+
+# ~/agente_sql/backend/main.py (Versión Final Definitiva - Anti-errores de ruta y CSV)
 
 import re
 import io
@@ -14,7 +16,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from langchain_community.utilities import SQLDatabase
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_google_genai import ChatGoogleGenera_iveAI
 from langchain.agents import create_sql_agent, AgentType
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain_core.prompts import PromptTemplate
@@ -45,13 +47,23 @@ def get_api_key_from_secret_manager():
         print(f"Error CRÍTICO al obtener la API Key de Secret Manager: {e}")
         raise RuntimeError("No se pudo obtener la GOOGLE_API_KEY desde Secret Manager.") from e
 
-# ... (El resto de tus funciones como load_and_prepare_data, create_db_engine, etc. van aquí sin cambios) ...
 def load_and_prepare_data():
-    local_file = "transaccional_dummy.csv"
+    """
+    Carga y prepara los datos del CSV usando una ruta absoluta para ser
+    compatible con cualquier entorno de producción.
+    """
     try:
-        print(f"Cargando datos desde el archivo local: {local_file}")
+        # --- INICIO DE LA CORRECCIÓN CLAVE ---
+        # 1. Obtiene la ruta del directorio donde se encuentra este script (main.py)
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        # 2. Construye la ruta completa y correcta al archivo CSV
+        local_file = os.path.join(base_dir, "transaccional_dummy.csv")
+        # --- FIN DE LA CORRECCIÓN CLAVE ---
+
+        print(f"Cargando datos desde la ruta absoluta: {local_file}")
         if not os.path.exists(local_file):
-            raise FileNotFoundError(f"Error CRÍTICO: No se encontró el archivo '{local_file}'.")
+            raise FileNotFoundError(f"Error CRÍTICO: No se encontró el archivo en la ruta '{local_file}'.")
+
         try:
             df = pd.read_csv(local_file, sep=None, engine='python', on_bad_lines='skip')
         except UnicodeDecodeError:
@@ -60,6 +72,7 @@ def load_and_prepare_data():
         except Exception as e:
             print(f"Ocurrió un error de parseo inesperado: {e}")
             raise
+
         print("Datos cargados exitosamente.")
         df.columns = [str(c) for c in df.columns]
         df.columns = df.columns.str.strip().str.lower().str.replace(r'\s+', '_', regex=True).str.replace(r'[^a-zA-Z0-9_]', '', regex=True)
@@ -154,6 +167,11 @@ app = FastAPI(lifespan=lifespan)
 def read_root():
     return {"status": "El backend del Agente de Datos está funcionando."}
 
+# Ruta de salud para App Engine (buena práctica)
+@app.get("/_ah/health")
+def health_check():
+    return {"status": "ok"}
+
 @app.post("/query", response_model=QueryResponse)
 async def handle_query(request: QueryRequest):
     query_master = app_state.get('query_master')
@@ -161,19 +179,4 @@ async def handle_query(request: QueryRequest):
     if not query_master or not validator_chain: raise HTTPException(status_code=503, detail="El servicio no está listo.")
     if not request.question: raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
     original_question = request.question
-    fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español, incluyendo los encabezados de la tabla. La pregunta es:"
-    modified_question = f"{fixed_instruction} {original_question}"
-    print(f"\n--- [INPUT ORIGINAL]: {original_question} ---")
-    print(f"--- [INPUT MODIFICADO PARA EL AGENTE]: {modified_question} ---")
-    try:
-        run_result = query_master.run_query(modified_question)
-        sql_query = run_result["sql_query"]
-        verdict = validator_chain.invoke({"question": original_question, "sql_query": sql_query})
-        full_log = f"{run_result['reasoning']}\n--- Validador ---\nPregunta: {original_question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
-        final_text = "" if run_result["table_data"] else run_result["answer_text"]
-        return QueryResponse(answer_text=final_text, table_data=run_result["table_data"], reasoning=full_log, verdict=verdict)
-    except Exception as e:
-        import traceback
-        traceback.print_exc()
-        raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
-
+    fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español, inc
