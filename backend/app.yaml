@@ -1,6 +1,11 @@
 service: backend
 runtime: python311
-instance_class: F2
+instance_class: F4  # <-- HEMOS AUMENTADO LA MEMORIA
+
+secret_env_variables:
+  GOOGLE_API_KEY:
+    secret: "gemini-api-key"
+    version: "latest"
 
 entrypoint: gunicorn -b :$PORT main:app -w 4 -k uvicorn.workers.UvicornWorker
 
