@@ -1,10 +1,15 @@
 # Ruta: backend/app.yaml
-# --- VERSIÓN FINAL CON 4GB DE MEMORIA ---
+# --- VERSIÓN FINAL OPTIMIZADA ---
 service: backend
 runtime: python311
-instance_class: B16  # Aumentamos la memoria a 4096MB
 
-entrypoint: gunicorn -b :$PORT main:app -w 4 -k uvicorn.workers.UvicornWorker
+# Usamos la instancia más potente disponible para escalado automático
+instance_class: B8
+
+# --- OPTIMIZACIÓN CLAVE ---
+# Reducimos el número de workers a 1 para minimizar el consumo de memoria.
+# Aumentamos el timeout para darle tiempo a arrancar.
+entrypoint: gunicorn -b :$PORT main:app -w 1 --timeout 300 -k uvicorn.workers.UvicornWorker
 
 automatic_scaling:
   min_instances: 0
