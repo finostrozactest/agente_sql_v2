@@ -1,5 +1,6 @@
 service: default
 runtime: custom
+env: standard  # <-- ¡LA LÍNEA CLAVE QUE FALTABA!
 instance_class: F2
 
 env_variables:
