@@ -12,6 +12,8 @@ langchain-experimental==0.0.57
 langchain-google-genai==1.0.2
 google-generativeai==0.5.2
 gunicorn
+google-cloud-secret-manager
+
 
 
 
