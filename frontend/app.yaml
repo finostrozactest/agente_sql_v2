@@ -1,7 +1,6 @@
-# contenido de frontend/app.yaml
+# Ruta: frontend/app.yaml
 service: default
 runtime: custom
-# La línea "env: flex" ha sido eliminada.
 
 env_variables:
   BACKEND_URL: "https://backend-dot-project-agentes.sa-west1.r.appspot.com/query"
