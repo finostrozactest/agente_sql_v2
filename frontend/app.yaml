@@ -2,8 +2,9 @@
 service: default
 runtime: custom
 
+  # dentro de frontend/app.yaml
 env_variables:
-  BACKEND_URL: "https://backend-dot-project-agentes.sa-west1.r.appspot.com/query"
+  BACKEND_URL: "https://backend-dot-project-agentes.ue.r.appspot.com/query"
 
 entrypoint: streamlit run app.py --server.port 8080 --server.enableCORS false --server.enableXsrfProtection false
 
