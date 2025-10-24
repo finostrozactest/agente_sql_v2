@@ -1,6 +1,6 @@
-# Ruta: frontend/app.yaml
 service: default
 runtime: custom
+instance_class: F2
 
 env_variables:
   BACKEND_URL: "https://backend-dot-project-agentes.ue.r.appspot.com/query"
@@ -10,4 +10,3 @@ entrypoint: streamlit run app.py --server.port 8080 --server.enableCORS false --
 automatic_scaling:
   min_instances: 0
   max_instances: 2
-instance_class: F2
