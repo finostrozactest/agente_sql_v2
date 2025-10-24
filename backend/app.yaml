@@ -1,8 +1,8 @@
 # Ruta: backend/app.yaml
-# --- VERSIÓN FINAL CON MÁS MEMORIA ---
+# --- VERSIÓN FINAL CON 4GB DE MEMORIA ---
 service: backend
 runtime: python311
-instance_class: F4  # Aumentamos la memoria a 1024MB
+instance_class: B16  # Aumentamos la memoria a 4096MB
 
 entrypoint: gunicorn -b :$PORT main:app -w 4 -k uvicorn.workers.UvicornWorker
 
