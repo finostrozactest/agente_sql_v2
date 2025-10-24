@@ -1,4 +1,4 @@
-# ~/agente_sql/backend/main.py (Versión Final Definitiva - Corregida y Robusta)
+# ~/agente_sql/backend/main.py (Versión Final Definitiva - Usa Vertex AI)
 
 import re
 import io
@@ -6,15 +6,15 @@ import os
 import pandas as pd
 from contextlib import redirect_stdout, asynccontextmanager
 
-# Import crucial para buscar el secreto
-from google.cloud import secretmanager
+# Ya no se necesita 'google.cloud.secretmanager'
 
 from sqlalchemy import create_engine
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from langchain_community.utilities import SQLDatabase
-from langchain_google_genai import ChatGoogleGenerativeAI
+# --- CAMBIO CLAVE DE IMPORTACIÓN ---
+from langchain_google_vertexai import VertexAI
 from langchain.agents import create_sql_agent, AgentType
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain_core.prompts import PromptTemplate
@@ -29,21 +29,7 @@ class QueryResponse(BaseModel):
     reasoning: str
     verdict: str
 
-def get_api_key_from_secret_manager():
-    """Obtiene la API Key desde Secret Manager al iniciar la app."""
-    try:
-        project_id = os.getenv('GCP_PROJECT', 'project-agentes')
-        secret_id = "gemini-api-key"
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-        print(f"Accediendo al secreto: {name}")
-        response = client.access_secret_version(request={"name": name})
-        api_key = response.payload.data.decode("UTF-8")
-        os.environ['GOOGLE_API_KEY'] = api_key
-        print("API Key cargada exitosamente desde Secret Manager.")
-    except Exception as e:
-        print(f"Error CRÍTICO al obtener la API Key de Secret Manager: {e}")
-        raise RuntimeError("No se pudo obtener la GOOGLE_API_KEY desde Secret Manager.") from e
+# La función 'get_api_key_from_secret_manager' ha sido eliminada.
 
 def load_and_prepare_data():
     """
@@ -125,11 +111,15 @@ class QueryMaster:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Iniciando el servidor...")
-    get_api_key_from_secret_manager()
+    # La llamada a 'get_api_key_from_secret_manager' ha sido eliminada.
     
     data_df = load_and_prepare_data()
     engine = create_db_engine(data_df)
-    llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
+    
+    # --- CAMBIO CLAVE DE MODELO ---
+    # Usamos VertexAI que se autentica automáticamente con la cuenta de servicio de la aplicación.
+    llm = VertexAI(model_name="models/gemini-2.5-flash-lite", temperature=0)
+    
     db = SQLDatabase(engine=engine)
     prefix = """
     Eres un asistente experto en análisis de datos. Tu objetivo es responder preguntas generando y ejecutando consultas SQL.
@@ -169,12 +159,10 @@ def health_check():
 async def handle_query(request: QueryRequest):
     query_master = app_state.get('query_master')
     validator_chain = app_state.get('validator_chain')
-    if not query_master or not validator_chain: raise HTTPException(status_de_code=503, detail="El servicio no está listo.")
+    if not query_master or not validator_chain: raise HTTPException(status_code=503, detail="El servicio no está listo.")
     if not request.question: raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
     original_question = request.question
     
-    # --- CORRECCIÓN DEL SYNTAX ERROR ---
-    # Usamos comillas triples para evitar errores con strings largos
     fixed_instruction = """Genera una tabla de datos como resultado. Responde completamente en español, incluyendo los encabezados de la tabla. La pregunta es:"""
     modified_question = f"{fixed_instruction} {original_question}"
     
@@ -191,5 +179,4 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
-
 
