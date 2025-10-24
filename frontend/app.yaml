@@ -13,11 +13,11 @@ automatic_scaling:
   cpu_utilization:
     target_utilization: 0.75
 
-# --- CONFIGURACIÓN DE CHEQUEO DE SALUD ULTRA-TOLERANTE ---
+# --- CONFIGURACIÓN DE CHEQUEO DE SALUD AJUSTADA A LÍMITES VÁLIDOS ---
 readiness_check:
   path: "/_stcore/health"
-  check_interval_sec: 60    # Comprueba cada minuto
-  timeout_sec: 10
-  failure_threshold: 30     # Permite 30 fallos seguidos (30 minutos)
-  success_threshold: 1
-  app_start_timeout_sec: 3600 # Permite hasta 1 hora para arrancar
+  check_interval_sec: 60     # Comprueba cada 60 segundos
+  timeout_sec: 4           # Tiempo de espera por respuesta
+  failure_threshold: 10      # MÁXIMO permitido. 10 fallos * 60s = 10 minutos de margen.
+  success_threshold: 2       # Necesita 2 respuestas OK para declararse saludable
+  app_start_timeout_sec: 1800  # 30 minutos de tiempo total de arranque
