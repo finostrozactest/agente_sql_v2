@@ -1,16 +1,16 @@
 # Ruta: backend/app.yaml
-# --- VERSIÓN FINAL OPTIMIZADA ---
+# --- VERSIÓN FINAL DEFINITIVA Y COMPATIBLE ---
 service: backend
 runtime: python311
 
-# Usamos la instancia más potente disponible para escalado automático
-instance_class: B8
+# Usamos la instancia MÁS GRANDE permitida para automatic_scaling
+instance_class: F4
 
-# --- OPTIMIZACIÓN CLAVE ---
-# Reducimos el número de workers a 1 para minimizar el consumo de memoria.
-# Aumentamos el timeout para darle tiempo a arrancar.
+# --- OPTIMIZACIÓN CLAVE DE MEMORIA ---
+# Reducimos los workers a 1 para que el consumo de memoria caiga drásticamente
 entrypoint: gunicorn -b :$PORT main:app -w 1 --timeout 300 -k uvicorn.workers.UvicornWorker
 
+# La única configuración que permite escalar a cero
 automatic_scaling:
   min_instances: 0
   max_instances: 1
