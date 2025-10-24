@@ -1,11 +1,10 @@
+# Ruta: backend/app.yaml
+# --- VERSIÓN FINAL DEFINITIVA ---
 service: backend
 runtime: python311
-instance_class: F4  # <-- HEMOS AUMENTADO LA MEMORIA
+instance_class: F4  # Aumentamos la memoria
 
-secret_env_variables:
-  GOOGLE_API_KEY:
-    secret: "gemini-api-key"
-    version: "latest"
+# NO hay 'secret_env_variables'. El código se encarga de ello.
 
 entrypoint: gunicorn -b :$PORT main:app -w 4 -k uvicorn.workers.UvicornWorker
 
