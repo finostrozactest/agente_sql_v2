@@ -10,9 +10,10 @@ langchain==0.1.16
 langchain-community==0.0.34
 langchain-experimental==0.0.57
 langchain-google-genai==1.0.2
-google-generativeai==0.5.2
+langchain-google-vertexai
 gunicorn
 google-cloud-secret-manager
+
 
 
 
