@@ -1,17 +1,12 @@
 # En backend/app.yaml
-# --- CONFIGURACIÓN NATIVA PARA APP ENGINE STANDARD ---
-runtime: python312  # Usamos el runtime nativo de Python
+service: backend
+runtime: custom
+env: flex
 
-# App Engine Standard SÍ soporta esta directiva
-secret_env_variables:
-  GOOGLE_API_KEY:
-    secret: "gemini-api-key"
-    version: "latest"
+entrypoint: uvicorn main:app --host 0.0.0.0 --port 8080
 
-# El entrypoint para runtimes nativos usa gunicorn
-entrypoint: gunicorn -b :$PORT main:app
-
-# La sintaxis de escalado para Standard que SÍ permite cero instancias
 automatic_scaling:
-  min_instances: 0
-  max_instances: 1
+  min_num_instances: 1  # <-- La concesión necesaria para Flex
+  max_num_instances: 2
+  cpu_utilization:
+    target_utilization: 0.75
