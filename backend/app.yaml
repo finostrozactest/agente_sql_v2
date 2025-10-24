@@ -1,11 +1,13 @@
 # En backend/app.yaml
 service: backend
 runtime: custom
-env: flex  # <-- AÑADE ESTA LÍNEA
+env: flex
 
 entrypoint: uvicorn main:app --host 0.0.0.0 --port 8080
 
+# --- SINTAXIS DE ESCALADO CORREGIDA PARA ENV: FLEX ---
 automatic_scaling:
-  min_instances: 0
-  max_instances: 1
-  cpu_utilization: 0.75
+  min_num_instances: 0
+  max_num_instances: 1
+  cpu_utilization:
+    target_utilization: 0.75
