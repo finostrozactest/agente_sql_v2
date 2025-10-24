@@ -1,10 +1,13 @@
-# ~/agente_sql/backend/main.py (Versión Final Definitiva - Anti-errores de CSV)
+# ~/agente_sql/backend/main.py (Versión Definitiva para Standard)
 
 import re
 import io
 import os
 import pandas as pd
 from contextlib import redirect_stdout, asynccontextmanager
+
+# Import crucial para buscar el secreto
+from google.cloud import secretmanager
 
 from sqlalchemy import create_engine
 from fastapi import FastAPI, HTTPException
@@ -26,39 +29,43 @@ class QueryResponse(BaseModel):
     reasoning: str
     verdict: str
 
+def get_api_key_from_secret_manager():
+    """Obtiene la API Key desde Secret Manager al iniciar la app."""
+    try:
+        project_id = os.getenv('GCP_PROJECT', 'project-agentes')
+        secret_id = "gemini-api-key"
+        client = secretmanager.SecretManagerServiceClient()
+        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
+        print(f"Accediendo al secreto: {name}")
+        response = client.access_secret_version(request={"name": name})
+        api_key = response.payload.data.decode("UTF-8")
+        os.environ['GOOGLE_API_KEY'] = api_key
+        print("API Key cargada exitosamente desde Secret Manager.")
+    except Exception as e:
+        print(f"Error CRÍTICO al obtener la API Key de Secret Manager: {e}")
+        raise RuntimeError("No se pudo obtener la GOOGLE_API_KEY desde Secret Manager.") from e
+
+# ... (El resto de tus funciones como load_and_prepare_data, create_db_engine, etc. van aquí sin cambios) ...
 def load_and_prepare_data():
     local_file = "transaccional_dummy.csv"
     try:
         print(f"Cargando datos desde el archivo local: {local_file}")
         if not os.path.exists(local_file):
             raise FileNotFoundError(f"Error CRÍTICO: No se encontró el archivo '{local_file}'.")
-
-        # --- ¡SOLUCIÓN DEFINITIVA PARA ERRORES DE PARSEO DE CSV! ---
-        # on_bad_lines='skip': Esta es la clave. Ignora cualquier línea que tenga un número incorrecto de columnas.
-        # engine='python': Usamos el motor de Python que es más flexible.
-        # sep=None: Dejamos que autodetecte el separador (coma o punto y coma).
-        # El bloque try/except maneja la codificación de caracteres.
         try:
             df = pd.read_csv(local_file, sep=None, engine='python', on_bad_lines='skip')
         except UnicodeDecodeError:
             print("Fallo al leer con UTF-8. Reintentando con codificación 'latin-1'.")
             df = pd.read_csv(local_file, sep=None, engine='python', on_bad_lines='skip', encoding='latin-1')
         except Exception as e:
-            # Captura cualquier otro error de parseo que no sea de codificación
             print(f"Ocurrió un error de parseo inesperado: {e}")
             raise
-
-        print("Datos cargados exitosamente (algunas filas podrían haberse omitido si estaban malformadas).")
-        print(f"DataFrame cargado con la forma: {df.shape}")
-        
-        print("Limpiando nombres de columnas para compatibilidad con SQL.")
+        print("Datos cargados exitosamente.")
         df.columns = [str(c) for c in df.columns]
         df.columns = df.columns.str.strip().str.lower().str.replace(r'\s+', '_', regex=True).str.replace(r'[^a-zA-Z0-9_]', '', regex=True)
-
         print("Datos preparados. Nombres de columnas finales:", df.columns.to_list())
         return df
     except Exception as e:
-        print(f"Error CRÍTICO durante la carga o preparación de datos: {e}")
         raise RuntimeError(f"Fallo al cargar o preparar los datos: {e}")
 
 def create_db_engine(df):
@@ -111,8 +118,8 @@ class QueryMaster:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Iniciando el servidor...")
-    if not os.getenv("GOOGLE_API_KEY"):
-        raise ValueError("FATAL: La variable de entorno GOOGLE_API_KEY no se encontró.")
+    get_api_key_from_secret_manager()
+    
     data_df = load_and_prepare_data()
     engine = create_db_engine(data_df)
     llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
@@ -169,5 +176,4 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
-
 
