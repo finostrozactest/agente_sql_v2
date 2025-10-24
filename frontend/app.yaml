@@ -1,14 +1,16 @@
 # En frontend/app.yaml
 service: default
 runtime: custom
-env: flex  # <-- AÑADE ESTA LÍNEA
+env: flex
 
 env_variables:
   BACKEND_URL: "https://backend-dot-project-agentes.ue.r.appspot.com/query"
 
 entrypoint: streamlit run app.py --server.port 8080 --server.enableCORS false --server.enableXsrfProtection false
 
+# --- SINTAXIS DE ESCALADO CORREGIDA PARA ENV: FLEX ---
 automatic_scaling:
-  min_instances: 0
-  max_instances: 2
-  target_cpu_utilization: 0.75
+  min_num_instances: 0
+  max_num_instances: 2
+  cpu_utilization:
+    target_utilization: 0.75
