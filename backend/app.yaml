@@ -1,20 +1,15 @@
 # Ruta: backend/app.yaml
-# --- CONFIGURACIÓN NATIVA PARA APP ENGINE STANDARD ---
 service: backend
-runtime: python311  # Usamos el runtime nativo de Python
+runtime: python311
 
-# App Engine Standard SÍ soporta esta directiva para inyectar secretos
 secret_env_variables:
   GOOGLE_API_KEY:
     secret: "gemini-api-key"
     version: "latest"
 
-# El entrypoint para runtimes nativos usa gunicorn para servir la app
 entrypoint: gunicorn -b :$PORT main:app -w 4 -k uvicorn.workers.UvicornWorker
 
-# La sintaxis de escalado para Standard que SÍ permite cero instancias
 automatic_scaling:
   min_instances: 0
   max_instances: 1
-
-instance_class: F2 # Especifica una clase de instancia con memoria suficiente
+instance_class: F2
