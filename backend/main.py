@@ -1,13 +1,10 @@
-
+# ~/agente_sql/backend/main.py (Versión Final Definitiva - Anti-errores de CSV)
 
 import re
 import io
 import os
 import pandas as pd
 from contextlib import redirect_stdout, asynccontextmanager
-
-# ¡Import añadido para Secret Manager!
-from google.cloud import secretmanager
 
 from sqlalchemy import create_engine
 from fastapi import FastAPI, HTTPException
@@ -36,12 +33,18 @@ def load_and_prepare_data():
         if not os.path.exists(local_file):
             raise FileNotFoundError(f"Error CRÍTICO: No se encontró el archivo '{local_file}'.")
 
+        # --- ¡SOLUCIÓN DEFINITIVA PARA ERRORES DE PARSEO DE CSV! ---
+        # on_bad_lines='skip': Esta es la clave. Ignora cualquier línea que tenga un número incorrecto de columnas.
+        # engine='python': Usamos el motor de Python que es más flexible.
+        # sep=None: Dejamos que autodetecte el separador (coma o punto y coma).
+        # El bloque try/except maneja la codificación de caracteres.
         try:
             df = pd.read_csv(local_file, sep=None, engine='python', on_bad_lines='skip')
         except UnicodeDecodeError:
             print("Fallo al leer con UTF-8. Reintentando con codificación 'latin-1'.")
             df = pd.read_csv(local_file, sep=None, engine='python', on_bad_lines='skip', encoding='latin-1')
         except Exception as e:
+            # Captura cualquier otro error de parseo que no sea de codificación
             print(f"Ocurrió un error de parseo inesperado: {e}")
             raise
 
@@ -105,36 +108,13 @@ class QueryMaster:
         sql_query = sql_matches[-1].strip() if sql_matches else "No se ejecutó una consulta SQL."
         return { "answer_text": text_part, "table_data": table_data, "reasoning": clean_log, "sql_query": sql_query }
 
-# --- NUEVA FUNCIÓN PARA BUSCAR LA API KEY ---
-def get_api_key_from_secret_manager():
-    """Obtiene la API Key desde Secret Manager al iniciar la app."""
-    try:
-        # App Engine define esta variable automáticamente en el entorno
-        project_id = os.getenv('GCP_PROJECT', 'project-agentes') 
-        secret_id = "gemini-api-key"
-        client = secretmanager.SecretManagerServiceClient()
-        name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
-        
-        print(f"Accediendo al secreto: {name}")
-        response = client.access_secret_version(request={"name": name})
-        api_key = response.payload.data.decode("UTF-8")
-        
-        # Se establece la variable de entorno para que LangChain la use
-        os.environ['GOOGLE_API_KEY'] = api_key
-        print("API Key cargada exitosamente desde Secret Manager.")
-    except Exception as e:
-        print(f"Error CRÍTICO al obtener la API Key de Secret Manager: {e}")
-        raise RuntimeError("No se pudo obtener la GOOGLE_API_KEY desde Secret Manager.") from e
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("Iniciando el servidor...")
-    # --- LÓGICA MODIFICADA: Llamamos a la nueva función al arrancar ---
-    get_api_key_from_secret_manager()
-    
+    if not os.getenv("GOOGLE_API_KEY"):
+        raise ValueError("FATAL: La variable de entorno GOOGLE_API_KEY no se encontró.")
     data_df = load_and_prepare_data()
     engine = create_db_engine(data_df)
-    # LangChain ahora encontrará la API key en las variables de entorno
     llm = ChatGoogleGenerativeAI(model="models/gemini-2.5-flash-lite", temperature=0)
     db = SQLDatabase(engine=engine)
     prefix = """
@@ -189,3 +169,5 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
+
