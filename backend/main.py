@@ -1,6 +1,4 @@
-
-
-# ~/agente_sql/backend/main.py (Versión Final Definitiva - Anti-errores de ruta y CSV)
+# ~/agente_sql/backend/main.py (Versión Final Definitiva - Corregida y Robusta)
 
 import re
 import io
@@ -16,7 +14,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
 from langchain_community.utilities import SQLDatabase
-from langchain_google_genai import ChatGoogleGenera_iveAI
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain.agents import create_sql_agent, AgentType
 from langchain.agents.agent_toolkits import SQLDatabaseToolkit
 from langchain_core.prompts import PromptTemplate
@@ -36,7 +34,7 @@ def get_api_key_from_secret_manager():
     try:
         project_id = os.getenv('GCP_PROJECT', 'project-agentes')
         secret_id = "gemini-api-key"
-        client = secretmanager.SecretManagerServiceClient()
+        client = secretmanager.ServiceClient()
         name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
         print(f"Accediendo al secreto: {name}")
         response = client.access_secret_version(request={"name": name})
@@ -53,12 +51,8 @@ def load_and_prepare_data():
     compatible con cualquier entorno de producción.
     """
     try:
-        # --- INICIO DE LA CORRECCIÓN CLAVE ---
-        # 1. Obtiene la ruta del directorio donde se encuentra este script (main.py)
         base_dir = os.path.dirname(os.path.abspath(__file__))
-        # 2. Construye la ruta completa y correcta al archivo CSV
         local_file = os.path.join(base_dir, "transaccional_dummy.csv")
-        # --- FIN DE LA CORRECCIÓN CLAVE ---
 
         print(f"Cargando datos desde la ruta absoluta: {local_file}")
         if not os.path.exists(local_file):
@@ -167,7 +161,6 @@ app = FastAPI(lifespan=lifespan)
 def read_root():
     return {"status": "El backend del Agente de Datos está funcionando."}
 
-# Ruta de salud para App Engine (buena práctica)
 @app.get("/_ah/health")
 def health_check():
     return {"status": "ok"}
@@ -176,7 +169,26 @@ def health_check():
 async def handle_query(request: QueryRequest):
     query_master = app_state.get('query_master')
     validator_chain = app_state.get('validator_chain')
-    if not query_master or not validator_chain: raise HTTPException(status_code=503, detail="El servicio no está listo.")
+    if not query_master or not validator_chain: raise HTTPException(status_de_code=503, detail="El servicio no está listo.")
     if not request.question: raise HTTPException(status_code=400, detail="La pregunta no puede estar vacía.")
     original_question = request.question
-    fixed_instruction = "Genera una tabla de datos como resultado. Responde completamente en español, inc
+    
+    # --- CORRECCIÓN DEL SYNTAX ERROR ---
+    # Usamos comillas triples para evitar errores con strings largos
+    fixed_instruction = """Genera una tabla de datos como resultado. Responde completamente en español, incluyendo los encabezados de la tabla. La pregunta es:"""
+    modified_question = f"{fixed_instruction} {original_question}"
+    
+    print(f"\n--- [INPUT ORIGINAL]: {original_question} ---")
+    print(f"--- [INPUT MODIFICADO PARA EL AGENTE]: {modified_question} ---")
+    try:
+        run_result = query_master.run_query(modified_question)
+        sql_query = run_result["sql_query"]
+        verdict = validator_chain.invoke({"question": original_question, "sql_query": sql_query})
+        full_log = f"{run_result['reasoning']}\n--- Validador ---\nPregunta: {original_question}\nConsulta: {sql_query}\nVeredicto: {verdict}"
+        final_text = "" if run_result["table_data"] else run_result["answer_text"]
+        return QueryResponse(answer_text=final_text, table_data=run_result["table_data"], reasoning=full_log, verdict=verdict)
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
