@@ -1,10 +1,8 @@
 # Ruta: backend/app.yaml
-# --- VERSIÓN FINAL DEFINITIVA ---
+# --- VERSIÓN FINAL CON MÁS MEMORIA ---
 service: backend
 runtime: python311
-instance_class: F4  # Aumentamos la memoria
-
-# NO hay 'secret_env_variables'. El código se encarga de ello.
+instance_class: F4  # Aumentamos la memoria a 1024MB
 
 entrypoint: gunicorn -b :$PORT main:app -w 4 -k uvicorn.workers.UvicornWorker
 
