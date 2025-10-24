@@ -1,9 +1,7 @@
-# contenido de backend/app.yaml
+# Ruta: backend/app.yaml
 service: backend
 runtime: custom
-# La línea "env: flex" ha sido eliminada. Esto activa el Entorno Standard.
 
-# ¡Esta sección ahora SÍ funcionará!
 secret_env_variables:
   GOOGLE_API_KEY:
     secret: "gemini-api-key"
@@ -11,7 +9,6 @@ secret_env_variables:
 
 entrypoint: uvicorn main:app --host 0.0.0.0 --port 8080
 
-# La sintaxis de escalado para Standard es ligeramente diferente
 automatic_scaling:
   min_instances: 0
   max_instances: 1
