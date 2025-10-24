@@ -1,11 +1,6 @@
-# Ruta: backend/app.yaml
+# En backend/app.yaml
 service: backend
 runtime: custom
-
-secret_env_variables:
-  GOOGLE_API_KEY:
-    secret: "gemini-api-key"
-    version: "latest"
 
 entrypoint: uvicorn main:app --host 0.0.0.0 --port 8080
 
