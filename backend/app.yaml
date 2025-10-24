@@ -1,7 +1,7 @@
 # Ruta: backend/app.yaml
 # --- CONFIGURACIÓN NATIVA PARA APP ENGINE STANDARD ---
 service: backend
-runtime: python312  # Usamos el runtime nativo de Python
+runtime: python311  # Usamos el runtime nativo de Python
 
 # App Engine Standard SÍ soporta esta directiva para inyectar secretos
 secret_env_variables:
