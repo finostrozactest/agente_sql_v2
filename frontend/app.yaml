@@ -1,16 +1,13 @@
-# En frontend/app.yaml
-service: default
+# En backend/app.yaml
+service: backend
 runtime: custom
 env: flex
 
-env_variables:
-  BACKEND_URL: "https://backend-dot-project-agentes.ue.r.appspot.com/query"
-
-entrypoint: streamlit run app.py --server.port 8080 --server.enableCORS false --server.enableXsrfProtection false
+entrypoint: uvicorn main:app --host 0.0.0.0 --port 8080
 
 # --- SINTAXIS DE ESCALADO CORREGIDA PARA ENV: FLEX ---
 automatic_scaling:
   min_num_instances: 0
-  max_num_instances: 2
+  max_num_instances: 1
   cpu_utilization:
     target_utilization: 0.75
