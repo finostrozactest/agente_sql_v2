@@ -1,8 +1,8 @@
-# Ruta: frontend/app.yaml
+# En frontend/app.yaml
 service: default
 runtime: custom
+env: flex  # <-- AÑADE ESTA LÍNEA
 
-  # dentro de frontend/app.yaml
 env_variables:
   BACKEND_URL: "https://backend-dot-project-agentes.ue.r.appspot.com/query"
 
