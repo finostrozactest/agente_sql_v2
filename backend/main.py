@@ -34,7 +34,7 @@ def get_api_key_from_secret_manager():
     try:
         project_id = os.getenv('GCP_PROJECT', 'project-agentes')
         secret_id = "gemini-api-key"
-        client = secretmanager.ServiceClient()
+        client = secretmanager.SecretManagerServiceClient()
         name = f"projects/{project_id}/secrets/{secret_id}/versions/latest"
         print(f"Accediendo al secreto: {name}")
         response = client.access_secret_version(request={"name": name})
@@ -191,4 +191,5 @@ async def handle_query(request: QueryRequest):
         import traceback
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Ocurrió un error interno en el backend: {e}")
+
 
